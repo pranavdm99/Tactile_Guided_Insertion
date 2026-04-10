@@ -1,0 +1,13 @@
+mujoco==3.1.5
+robosuite
+numpy
+gymnasium
+h5py
+scipy
+torch
+opencv-python
+matplotlib
+pybullet
+pyspacemouse
+imageio
+pandas
