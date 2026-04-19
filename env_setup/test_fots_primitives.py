@@ -81,14 +81,14 @@ def main():
     mlp_model.eval()
     
     fots_render = MLPRender(background_img=background_img, bg_depth=bg_ini_depth, bg_render=bg_render_mlp, model=mlp_model)
-    depth_capture = TactileDepthCapture(sim_helper, height=900, width=675)
+    depth_capture = TactileDepthCapture(sim_helper, height=320, width=240)
     world_renderer = mujoco.Renderer(model, height=900, width=900)
     
     # Baseline (No Contact)
     data.joint("obj_z").qpos[0] = 1.0 
     mujoco.mj_step(model, data)
-    z_raw = depth_capture.render_depth_meters("tactile_cam")
-    z_norm = meters_to_normalized_depth(sim_helper, np.fliplr(cv2.resize(z_raw, (240, 320), interpolation=cv2.INTER_AREA)))
+    z_raw = depth_capture.render_depth_meters_batched(sim_helper, ["tactile_cam"])[0]
+    z_norm = meters_to_normalized_depth(sim_helper, np.fliplr(z_raw))
     fots_render.bg_depth = z_norm
     fots_render._pre_scaled_bg = fots_render.bg_depth * fots_render._scale
     
@@ -108,8 +108,8 @@ def main():
         world_renderer.update_scene(data, camera="world_cam")
         world_bgr = cv2.cvtColor(world_renderer.render(), cv2.COLOR_RGB2BGR)
         
-        z_curr = depth_capture.render_depth_meters("tactile_cam")
-        z_norm_curr = meters_to_normalized_depth(sim_helper, np.fliplr(cv2.resize(z_curr, (240, 320), interpolation=cv2.INTER_AREA)))
+        z_curr = depth_capture.render_depth_meters_batched(sim_helper, ["tactile_cam"])[0]
+        z_norm_curr = meters_to_normalized_depth(sim_helper, np.fliplr(z_curr))
         
         tactile_rgb = fots_render.generate(z_norm_curr)
         tactile_bgr = cv2.cvtColor(cv2.resize(tactile_rgb, (675, 900), interpolation=cv2.INTER_CUBIC), cv2.COLOR_RGB2BGR)

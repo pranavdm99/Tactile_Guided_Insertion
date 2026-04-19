@@ -112,7 +112,7 @@ def main():
         mlp_model.eval()
         
         fots_render = MLPRender(background_img=background_img, bg_depth=bg_ini_depth, bg_render=bg_render_mlp, model=mlp_model)
-        depth_capture = TactileDepthCapture(sim_helper, height=900, width=675)
+        depth_capture = TactileDepthCapture(sim_helper, height=320, width=240)
         world_renderer = mujoco.Renderer(model, height=900, width=900)
         
         # 2. Rendering Options (Stricter Site Filtering)
@@ -130,13 +130,11 @@ def main():
             # Symmetrical orientation Sync
             if side == "left": z = np.fliplr(z)
             else: z = np.flipud(z)
-            z_fots = cv2.resize(z, (240, 320), interpolation=cv2.INTER_AREA)
-            z_clamped = bandpass_gel_depth(z_fots, 0.0225, far_cap_m=0.010)
+            z_clamped = bandpass_gel_depth(z, 0.0225, far_cap_m=0.010)
             return meters_to_normalized_depth(sim_helper, z_clamped)
 
         def feed(cam, baseline, side="left"):
-            depth_capture._renderer.update_scene(data, camera=cam, scene_option=vopt_tactile)
-            z = depth_capture.render_depth_meters(cam)
+            z = depth_capture.render_depth_meters_batched(sim_helper, [cam], scene_option=vopt_tactile)[0]
             curr = process(z, side=side)
             fots_render.bg_depth = baseline
             fots_render._pre_scaled_bg = fots_render.bg_depth * fots_render._scale
@@ -146,15 +144,28 @@ def main():
         # Baseline (No Contact)
         data.mocap_pos[0][2] = -5.0
         mujoco.mj_step(model, data)
-        b_l = process(depth_capture.render_depth_meters("tactile_cam_left"), "left")
-        b_r = process(depth_capture.render_depth_meters("tactile_cam_right"), "right")
+
+        # Discovery: Find the actual camera names (which have prefixes)
+        cam_l, cam_r = None, None
+        for i in range(model.ncam):
+            name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_CAMERA, i)
+            if "tactile_cam_left" in name: cam_l = name
+            if "tactile_cam_right" in name: cam_r = name
+        
+        if not cam_l or not cam_r:
+            print("[ERROR] Tactile cameras not found in model!")
+            return
+
+        baselines = depth_capture.render_depth_meters_batched(sim_helper, [cam_l, cam_r], scene_option=vopt_tactile)
+        b_l = process(baselines[0], "left")
+        b_r = process(baselines[1], "right")
 
         if args.headless:
             # Verified Centered Contact
             data.mocap_pos[0] = [0, 0, 0.205]
             data.ctrl[0], data.ctrl[1] = -0.01, 0.01
             for _ in range(100): mujoco.mj_step(model, data)
-            combined = np.hstack([feed("tactile_cam_left", b_l, "left"), feed("tactile_cam_right", b_r, "right")])
+            combined = np.hstack([feed(cam_l, b_l, "left"), feed(cam_r, b_r, "right")])
             cv2.imwrite("/app/tactile_verification.png", combined)
             print("[SUCCESS] Headless verification saved to /app/tactile_verification.png")
             return
@@ -179,8 +190,8 @@ def main():
             for _ in range(5): mujoco.mj_step(model, data)
             world_renderer.update_scene(data, camera="world_cam", scene_option=vopt_world)
             w_bgr = cv2.cvtColor(world_renderer.render(), cv2.COLOR_RGB2BGR)
-            t_l = feed("tactile_cam_left", b_l, "left")
-            t_r = feed("tactile_cam_right", b_r, "right")
+            t_l = feed(cam_l, b_l, "left")
+            t_r = feed(cam_r, b_r, "right")
             cv2.imshow(win, np.hstack([w_bgr, t_l, t_r]))
             if cv2.waitKey(1) & 0xFF == ord('q'): break
 

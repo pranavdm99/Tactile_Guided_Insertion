@@ -1,80 +1,71 @@
 import os
-import re
 import numpy as np
-import xml.etree.ElementTree as ET
-from robosuite.models.grippers import PandaGripper, GRIPPER_MAPPING
+from robosuite.models.grippers import GripperModel
 
-class FOTSPandaGripper(PandaGripper):
+class FOTSPandaGripper(GripperModel):
     """
-    Standard Franka Panda Gripper with integrated FOTS (Fused Optical Tactile Sensor) simulation.
-    Features:
-    - Dual fingertip camera injection (22.5mm setback).
-    - Hardcoded calibration (0.000mm focal error).
-    - Unlocked actuators and joints for tactile compliance.
+    Custom Franka Gripper with integrated FOTS (Fused Optical Tactile Sensor) cameras.
+    Loads the MJCF from env_setup/models/fots_panda_gripper.xml.
+    
+    Mimics the standard PandaGripper with 1-DOF parallel jaw control,
+    where both fingers move symmetrically (mirrored).
     """
     def __init__(self, idn=0):
-        super().__init__(idn=idn)
-        self._inject_fots_sensors()
-
-    def _inject_fots_sensors(self):
-        root = self.root
-        worldbody = root.find("worldbody")
-        asset = root.find("asset")
+        # Locate the MJCF file relative to this script
+        base_path = os.path.dirname(__file__)
+        xml_path = os.path.join(base_path, "models/fots_panda_gripper.xml")
         
-        # 1. Hardware Unlock: Remove rigid joint/actuator limits
-        for joint in root.iter("joint"):
-            joint.set("limited", "false")
-            if "range" in joint.attrib: del joint.attrib["range"]
-            
-        for actuator in root.iter("actuator"):
-            actuator.set("ctrllimited", "false")
-            actuator.set("kp", "50000") # High-gain for realistic tactile synthesis
-            if "ctrlrange" in actuator.attrib: del actuator.attrib["ctrlrange"]
-
-        # 2. Site Scrubbing: Move robosuite default markers to hidden group 4
-        for site in root.iter("site"):
-            site.set("group", "4")
-
-        # 3. Fingertip Camera Injection
-        for i, tip_name in enumerate(["gripper0_finger_joint1_tip", "gripper0_finger_joint2_tip"]):
-            side = "left" if i == 0 else "right"
-            euler = "-90 0 0" if side == "left" else "90 0 0"
-            
-            # Find the joint tip body
-            tip_body = None
-            for body in root.iter("body"):
-                if body.get("name") == tip_name:
-                    tip_body = body
-                    break
-            
-            if tip_body is not None:
-                # Add Camera (22.5mm setback is verified focal center)
-                # Left finger faces +Y, Right finger faces -Y
-                cam_y = 0.0225 if side == "left" else -0.0225
-                cam = ET.SubElement(tip_body, "camera", {
-                    "name": f"tactile_cam_{side}",
-                    "pos": f"0 {cam_y} -0.015",
-                    "euler": euler,
-                    "fovy": "60"
-                })
-                # Add Debug Axes
-                axes = ET.SubElement(tip_body, "site", {
-                    "name": f"fots_axes_{side}",
-                    "type": "box",
-                    "size": "0.005 0.005 0.005",
-                    "rgba": "1 0 0 0.5",
-                    "group": "4"
-                })
-
-        # 4. Soft-Gel Compliance: Inject canonical solref/solimp
-        for geom in root.iter("geom"):
-            if "pad_collision" in geom.get("name", ""):
-                geom.set("solref", "0.02 1")
-                geom.set("solimp", "0.9 0.95 0.001 0.5 2")
-                geom.set("group", "4") # Hidden from tactile renderer
-
-    def format_action(self, action):
-        return super().format_action(action)
+        super().__init__(xml_path, idn=idn)
+        
+        # Initialize current action state for velocity-based control
+        self.current_action = np.zeros(2)
 
     @property
-    def speed(self): return 0.01
+    def init_qpos(self):
+        return [0.02, -0.02]
+
+    @property
+    def _important_sites(self):
+        return {
+            "grip_site": "grip_site",
+            "grip_cylinder": "grip_site_cylinder",
+            "ee": "ee",
+            "ee_x": "ee_x",
+            "ee_y": "ee_y",
+            "ee_z": "ee_z",
+        }
+
+    def format_action(self, action):
+        """
+        Maps continuous action into mirrored control signals for both fingers.
+        Follows the same pattern as standard PandaGripper with velocity-based control.
+        
+        Args:
+            action (np.array): Single-element array where:
+                    -1 => open
+                    +1 => closed
+        
+        Returns:
+            2-element array with mirrored control signals for both fingers
+        
+        Raises:
+            AssertionError: [Invalid action dimension size]
+        """
+        assert len(action) == self.dof, f"Expected action dim {self.dof}, got {len(action)}"
+        
+        # Velocity-based control: accumulate action with speed factor
+        # Both fingers move in opposite directions (mirrored)
+        self.current_action = np.clip(
+            self.current_action + np.array([-1.0, 1.0]) * self.speed * np.sign(action),
+            -1.0,
+            1.0
+        )
+        return self.current_action
+
+    @property
+    def speed(self):
+        return 0.1
+
+    @property
+    def dof(self):
+        return 1  # Single DOF: mirrored parallel jaw gripper
