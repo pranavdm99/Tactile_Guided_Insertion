@@ -3,22 +3,26 @@ services:
     build: .
     image: tactile_insertion:latest
     container_name: tactile_insertion_container
+
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu, utility, compute, graphics, display]
+              capabilities: [ gpu, utility, compute, graphics, display ]
+
     environment:
-      - DISPLAY=${DISPLAY:-:0}
-      - XAUTHORITY=/root/.Xauthority
+      - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/tmp/.docker.xauth
       - MUJOCO_GL=egl
-      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils
+      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts
+
     volumes:
       - .:/app
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ${XAUTHORITY:-$HOME/.Xauthority}:/root/.Xauthority:ro
+      - ${XAUTHORITY}:/tmp/.docker.xauth:ro
+
     network_mode: "host"
     ipc: "host"
     tty: true

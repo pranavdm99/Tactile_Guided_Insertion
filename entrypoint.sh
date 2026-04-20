@@ -8,7 +8,7 @@ echo "[FOTS BOOTSTRAP] Initializing Tactile Simulation Environment..."
 # - Clone FOTS_repo if missing (from the official fork)
 # - Extract relevant parts into fots_sim
 # - Resume if fots_sim is already self-contained
-python3 /app/scripts/hydrate_fots_engine.py
+python3 /app/hydrate_fots_engine.py
 
 # 2. Execute Command (default: bash)
 exec "$@"

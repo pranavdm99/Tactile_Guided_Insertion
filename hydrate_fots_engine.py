@@ -20,7 +20,7 @@ def hydrate(repo_url="https://github.com/pranavdm99/FOTS.git", branch="FOTS-mujo
     Extracts relevant FOTS simulation components from FOTS_repo into the decoupled fots_sim engine.
     If FOTS_repo is missing, it automatically clones from the specified URL and branch.
     """
-    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root_dir = os.path.dirname(os.path.abspath(__file__))
     src_repo = os.path.join(root_dir, "FOTS_repo")
     dest_engine = os.path.join(root_dir, "fots_sim")
 

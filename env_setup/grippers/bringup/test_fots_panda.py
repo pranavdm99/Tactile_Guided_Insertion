@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 import re
 from fots_sim.utils.mlp_render import MLPRender
 from fots_sim.mlp_model import MLP
-from env_setup.custom_grippers import FOTSPandaGripper
+from env_setup.grippers.fots_panda import FOTSPandaGripper
 from env_setup.tactile_depth_capture import (
     TactileDepthCapture, 
     meters_to_normalized_depth, 
@@ -112,10 +112,12 @@ def main():
         mlp_model.eval()
         
         fots_render = MLPRender(background_img=background_img, bg_depth=bg_ini_depth, bg_render=bg_render_mlp, model=mlp_model)
-        depth_capture = TactileDepthCapture(sim_helper, height=320, width=240)
+        
+        # 2. Rendering Setup (MuJoCo 3.x native)
+        tactile_renderer = mujoco.Renderer(model, height=320, width=240)
+        tactile_renderer.enable_depth_rendering()
         world_renderer = mujoco.Renderer(model, height=900, width=900)
         
-        # 2. Rendering Options (Stricter Site Filtering)
         vopt_tactile = mujoco.MjvOption()
         for i in range(6): 
             vopt_tactile.geomgroup[i] = 0
@@ -134,7 +136,8 @@ def main():
             return meters_to_normalized_depth(sim_helper, z_clamped)
 
         def feed(cam, baseline, side="left"):
-            z = depth_capture.render_depth_meters_batched(sim_helper, [cam], scene_option=vopt_tactile)[0]
+            tactile_renderer.update_scene(data, camera=cam, scene_option=vopt_tactile)
+            z = tactile_renderer.render()
             curr = process(z, side=side)
             fots_render.bg_depth = baseline
             fots_render._pre_scaled_bg = fots_render.bg_depth * fots_render._scale
@@ -156,9 +159,13 @@ def main():
             print("[ERROR] Tactile cameras not found in model!")
             return
 
-        baselines = depth_capture.render_depth_meters_batched(sim_helper, [cam_l, cam_r], scene_option=vopt_tactile)
-        b_l = process(baselines[0], "left")
-        b_r = process(baselines[1], "right")
+        tactile_renderer.update_scene(data, camera=cam_l, scene_option=vopt_tactile)
+        z_l_base = tactile_renderer.render()
+        tactile_renderer.update_scene(data, camera=cam_r, scene_option=vopt_tactile)
+        z_r_base = tactile_renderer.render()
+        
+        b_l = process(z_l_base, "left")
+        b_r = process(z_r_base, "right")
 
         if args.headless:
             # Verified Centered Contact

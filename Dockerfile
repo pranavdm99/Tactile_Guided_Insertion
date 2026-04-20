@@ -46,7 +46,7 @@ ENV PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils"
 RUN echo 'export PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils"' >> /root/.bashrc
 
 # Configure Entrypoint
-COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
