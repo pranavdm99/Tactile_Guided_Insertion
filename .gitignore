@@ -1,3 +1,6 @@
 .vscode
 fots_sim
 __pycache__
+datasets/
+*.pyc
+.DS_Store

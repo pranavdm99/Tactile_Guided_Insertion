@@ -1,4 +1,5 @@
 import os
+import time
 import torch
 import numpy as np
 import cv2
@@ -29,19 +30,21 @@ class TactileObservationWrapper(Wrapper):
         
         # 1. Initialize Depth Capture
         self.depth_capture = TactileDepthCapture(self.env.sim, height=height, width=width)
+        self._model_id = id(self.env.sim.model)  # Track for stale renderer detection
         
-        # 2. Discover Camera Names (handles robot0_gripper0_ prefixes in Robosuite 1.5.x)
+        # 3. Discover Camera Names (handles robot0_gripper0_ prefixes in Robosuite 1.5.x)
         self.camera_names = self._discover_tactile_cameras()
         
-        # 3. Setup Scene Options for Tactile Rendering
-        # Match test_franka_gripper_fots.py: ONLY show objects (group 1)
-        # Cameras are positioned inside gel pads looking outward
-        # They should ONLY see objects touching the gel, not the gripper itself
+        # 4. Initialize Masking: Move robot into a hidden group
+        self._mask_robot_geoms()
+        
+        # 5. Setup Scene Options for Tactile Rendering
+        # Cameras should ONLY see objects (Groups 0/1), not the gripper (Group 2)
         self.tactile_scene_option = mujoco.MjvOption()
         for i in range(6):
-            self.tactile_scene_option.geomgroup[i] = 0
+            # Show objects (0=collision, 1=visual)
+            self.tactile_scene_option.geomgroup[i] = 1 if i in [0, 1] else 0
             self.tactile_scene_option.sitegroup[i] = 0
-        self.tactile_scene_option.geomgroup[1] = 1  # ONLY show objects
         
         # 4. Initialize FOTS Rendering Engine (if needed)
         self.fots_render = None
@@ -74,6 +77,21 @@ class TactileObservationWrapper(Wrapper):
             
         return found
 
+    def _mask_robot_geoms(self):
+        """
+        Migrates robot geoms to Group 2 so they can be hidden from tactile renderer.
+        This must be called on every reset as Robosuite replaces the mjModel.
+        """
+        sim_model = self.env.sim.model
+        mj_model = sim_model._model if hasattr(sim_model, "_model") else sim_model
+        
+        mask_keywords = ["robot", "finger", "hand", "gripper", "panda", "link", "franka"]
+        for i in range(mj_model.ngeom):
+            name = mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_GEOM, i)
+            if name and any(x in name.lower() for x in mask_keywords):
+                # Move to group 2 (Hidden from tactile renderer)
+                mj_model.geom_group[i] = 2
+
     def _init_fots_engine(self):
         base_dir = "/app/fots_sim"
         if not os.path.exists(base_dir): 
@@ -93,11 +111,18 @@ class TactileObservationWrapper(Wrapper):
     def _process_depth(self, z, side="left"):
         """
         Converts raw depth map into a normalized tactile deformation map [0, 1].
-        Matches the exact processing from test_franka_gripper_fots.py
         """
-        # 1. Orientation Sync (mirror for left/right cameras)
-        if side == "left": z = np.fliplr(z)
-        else: z = np.flipud(z)
+        # 1. Orientation Sync (to match FOTS assets)
+        # MuJoCo raw depth is upside down. 
+        # Left finger needs 180-degree correction (fliplr + flipud)
+        # Right finger is already 180-degrees rotated in XML, so it only needs horizontal sync
+        if side == "left":
+            z = np.fliplr(np.flipud(z))
+        else:
+            z = z # No flip needed for Right if it started 180-degrees from Left
+
+        # DEBUG: Range Check (Should be ~0.0225m for gel surface)
+        # print(f"DEBUG: {side} Raw depth range: {z.min():.4f} - {z.max():.4f}")
 
         # 2. Bandpass Filter: Clamp far objects to gel surface depth
         z_clamped = bandpass_gel_depth(z, z_ref_m=0.0225, far_cap_m=0.010)
@@ -112,6 +137,13 @@ class TactileObservationWrapper(Wrapper):
         z_meters_list = self.depth_capture.render_depth_meters_batched(
             self.env.sim, cams, scene_option=self.tactile_scene_option
         )
+        
+        # 0. Denoising: Remove high-frequency "spikes" and jitter
+        # Convert to numpy for filtering if not already
+        z_meters_list = [np.nan_to_num(z, nan=10.0, posinf=10.0, neginf=10.0) for z in z_meters_list]
+        z_meters_list = [cv2.medianBlur(z.astype(np.float32), 3) for z in z_meters_list]
+        z_meters_list = [cv2.GaussianBlur(z, (5, 5), 0) for z in z_meters_list]
+        
         
         obs = {}
         for i, side in enumerate(["left", "right"]):
@@ -149,10 +181,25 @@ class TactileObservationWrapper(Wrapper):
         return obs
 
     def reset(self):
+        # 1. Standard Robosuite Reset
         obs = super().reset()
         
-        # Update Baselines (No Contact state)
+        # 2. Dynamic Masking Refresh: Robosuite replaces the model on reset!
+        self._mask_robot_geoms()
+        
+        # 3. Hardware Cool-down: Allows native renderer to settle
+        time.sleep(0.2)
+        self.env.sim.forward() 
+        
         cams = [self.camera_names["left"], self.camera_names["right"]]
+
+        # 3. Warm-up (Clears any residual rendering artifacts)
+        for _ in range(2):
+           _ = self.depth_capture.render_depth_meters_batched(
+               self.env.sim, cams, scene_option=self.tactile_scene_option
+           )
+
+        # 4. Update Baselines (No Contact state)
         z_meters_list = self.depth_capture.render_depth_meters_batched(
             self.env.sim, cams, scene_option=self.tactile_scene_option
         )

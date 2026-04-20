@@ -12,12 +12,13 @@ import robosuite as suite
 from pynput import keyboard, mouse
 from robosuite import load_composite_controller_config
 from env_setup.make_env import make_fots_env
+from env_setup.utils.data_recorder import DataRecorder
 
 class HybridDevice:
     """
     Combines Keyboard and Mouse input for 6-DOF robot control.
     """
-    def __init__(self, pos_sensitivity=0.2, rot_sensitivity=0.05, scroll_sensitivity=0.5):
+    def __init__(self, pos_sensitivity=0.2, rot_sensitivity=0.1, scroll_sensitivity=0.5):
         self.pos_sensitivity = pos_sensitivity
         self.rot_sensitivity = rot_sensitivity
         self.scroll_sensitivity = scroll_sensitivity
@@ -28,6 +29,8 @@ class HybridDevice:
         self.grasp = False
         self.reset_state = False
         self.quit = False
+        self.recording = False
+        self.recording_toggled = False
 
         # Mouse tracking
         self.last_mouse_pos = None
@@ -77,6 +80,9 @@ class HybridDevice:
                 self.reset_state = True
             elif key == keyboard.Key.esc:
                 self.quit = True
+            elif hasattr(key, 'char') and key.char == 'r':
+                self.recording = not self.recording
+                self.recording_toggled = True
         except Exception:
             pass
 
@@ -105,6 +111,7 @@ def main():
     parser.add_argument("--fast", action="store_true", help="Use fast depth visualization instead of FOTS MLP")
     parser.add_argument("--no-tactile-display", action="store_true", help="Disable tactile image display window")
     parser.add_argument("--nut", type=str, default=None, choices=["round", "square"], help="Nut type to use")
+    parser.add_argument("--dataset-dir", type=str, default="datasets", help="Directory to save demonstrations")
     args = parser.parse_args()
 
     # 1. Initialize environment with FOTS Panda Gripper
@@ -124,8 +131,11 @@ def main():
     # 2. Initialize Hybrid Device
     device = HybridDevice()
     device.start()
+
+    # 3. Initialize Data Recorder
+    recorder = DataRecorder(output_dir=args.dataset_dir)
     
-    # 3. Setup tactile display window if enabled
+    # 4. Setup tactile display window if enabled
     tactile_win = None
     if not args.no_tactile_display:
         tactile_win = "FOTS Tactile Sensors"
@@ -176,6 +186,9 @@ def main():
                     if hasattr(base_env.viewer, 'viewer') and base_env.viewer.viewer is not None:
                         if hasattr(base_env.viewer.viewer, 'opt'):
                             base_env.viewer.viewer.opt.geomgroup[4] = 1
+                
+                if device.recording:
+                    recorder.save_episode(discard=True)
                 continue
 
             # Standard 7-DOF action: [dx, dy, dz, ax, ay, az, grasp]
@@ -207,8 +220,28 @@ def main():
                 
                 # Stack horizontally and display
                 combined = np.hstack([left_display, right_display])
+
+                # Overlay Recording Status
+                if device.recording:
+                    cv2.putText(combined, "REC", (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 0, 255), 4)
+                    cv2.circle(combined, (30, 65), 15, (0, 0, 255), -1)
+
                 cv2.imshow(tactile_win, combined)
                 cv2.waitKey(1)
+
+            # 4. Recording Logic
+            if device.recording:
+                if device.recording_toggled:
+                    print("[INFO] Recording Started...")
+                    recorder.start_episode()
+                    device.recording_toggled = False
+                
+                # Record the transition
+                recorder.record_step(obs, action, reward, done)
+            elif device.recording_toggled:
+                print("[INFO] Recording Stopped.")
+                recorder.save_episode()
+                device.recording_toggled = False
 
             if done:
                 print("[INFO] Episode done. Resetting...")
