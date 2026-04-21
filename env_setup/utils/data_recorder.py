@@ -10,6 +10,9 @@ class DataRecorder:
     Robust HDF5 Data Recorder for Robosuite and FOTS tactile integration.
     Produces datasets compatible with Robomimic IL training.
     """
+    # Robomimic robosuite environments use EnvType.ROBOSUITE_TYPE == 1 (see robomimic.envs.env_base).
+    _ROBOMIMIC_ROBOSUITE_TYPE = 1
+
     def __init__(self, output_dir, downsample_size=(64, 48), filename=None):
         """
         Args:
@@ -39,9 +42,24 @@ class DataRecorder:
         
         # Metadata to identify which object keys to store dynamically
         self.object_keys = []
+        # Optional: serialized Robomimic `env_meta` written to data.attrs["env_args"] on first save
+        self._robomimic_env_context = None
+
+    def set_robomimic_env_context(self, env_meta_dict):
+        """
+        If set, the first time an episode is saved, `data` group gets attrs["env_args"] = json.dumps(...)
+        with keys env_name, type, env_version, env_kwargs as expected by robomimic.utils.env_utils.
+
+        Args:
+            env_meta_dict (dict): Must be JSON-serializable (no numpy arrays / callables).
+        """
+        self._robomimic_env_context = dict(env_meta_dict)
 
     def start_episode(self):
         """Reset buffers for a new trajectory."""
+        # Re-discover nut observables each episode: active nut switches name
+        # (SquareNut_* vs RoundNut_*) when nut_type is None and the env randomizes per reset.
+        self.object_keys = []
         self.current_episode = {
             "obs": {},
             "actions": [],
@@ -111,6 +129,18 @@ class DataRecorder:
                 data_grp = f.create_group("data")
             else:
                 data_grp = f["data"]
+
+            # Robomimic reads env reconstruction metadata from data.attrs["env_args"] (JSON string).
+            if self._robomimic_env_context is not None and "env_args" not in data_grp.attrs:
+                env_args = {
+                    "env_name": self._robomimic_env_context["env_name"],
+                    "type": self._ROBOMIMIC_ROBOSUITE_TYPE,
+                    "env_version": self._robomimic_env_context.get(
+                        "env_version", self._robomimic_env_context.get("repository_version", "")
+                    ),
+                    "env_kwargs": self._robomimic_env_context.get("env_kwargs", {}),
+                }
+                data_grp.attrs["env_args"] = json.dumps(env_args, default=str)
             
             # Find next demo index
             demo_id = f"demo_{self.demo_count}"
@@ -123,7 +153,13 @@ class DataRecorder:
             # Store primary keys
             ep_grp.create_dataset("actions", data=np.array(self.current_episode["actions"]))
             ep_grp.create_dataset("rewards", data=np.array(self.current_episode["rewards"]))
-            ep_grp.create_dataset("dones", data=np.array(self.current_episode["dones"]))
+            dones = np.array(self.current_episode["dones"], dtype=bool)
+            # Robosuite's done is horizon-only; demos usually end early with all False. Mark the
+            # final transition as terminal so BC / sequence tooling that expects a boundary flag works.
+            if dones.size > 0 and not np.any(dones):
+                dones = dones.copy()
+                dones[-1] = True
+            ep_grp.create_dataset("dones", data=dones)
             
             # Store observations
             obs_grp = ep_grp.create_group("obs")
@@ -136,7 +172,11 @@ class DataRecorder:
             # Update global metadata on first save
             if "total" not in f.attrs:
                 f.attrs["total"] = 0
-                f.attrs["env_name"] = "NutAssemblySingle" # Hardcoded for now but can be dynamic
+                f.attrs["env_name"] = (
+                    self._robomimic_env_context.get("env_name", "NutAssemblySingle")
+                    if self._robomimic_env_context
+                    else "NutAssemblySingle"
+                )
             f.attrs["total"] += 1
 
         print(f"[SUCCESS] Saved {demo_id} to {self.filepath} ({len(self.current_episode['actions'])} steps)")

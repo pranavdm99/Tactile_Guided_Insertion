@@ -134,6 +134,24 @@ def main():
 
     # 3. Initialize Data Recorder
     recorder = DataRecorder(output_dir=args.dataset_dir)
+    base_env = env.env if hasattr(env, "env") else env
+    recorder.set_robomimic_env_context(
+        {
+            "env_name": args.env,
+            "env_version": suite.__version__,
+            "env_kwargs": {
+                "env_name": args.env,
+                "robots": "Panda",
+                "gripper_types": "FOTSPandaGripper",
+                "has_renderer": bool(getattr(env, "has_renderer", False)),
+                "has_offscreen_renderer": bool(getattr(env, "has_offscreen_renderer", True)),
+                "use_camera_obs": True,
+                "control_freq": getattr(base_env, "control_freq", 20),
+                "horizon": args.horizon,
+                "nut_type": args.nut,
+            },
+        }
+    )
     
     # 4. Setup tactile display window if enabled
     tactile_win = None
@@ -152,9 +170,8 @@ def main():
     
     # Enable geometry group 4 (gripper visualization) AFTER first render
     # This ensures the viewer is initialized before we modify vopt
-    # Note: env is wrapped, so base env is accessed via env.env
-    base_env = env.env if hasattr(env, 'env') else env
-    
+    # (base_env was set above for recorder metadata)
+
     # For on-screen mjviewer renderer (uses mujoco.viewer with .opt attribute)
     if hasattr(base_env, 'viewer') and base_env.viewer is not None:
         # The MjviewerRenderer creates the actual viewer lazily in update()
@@ -190,6 +207,9 @@ def main():
                 if device.recording:
                     recorder.save_episode(discard=True)
                 continue
+
+            # Observation before this control step (matches BC convention: predict a_t from s_t).
+            obs_before = obs
 
             # Standard 7-DOF action: [dx, dy, dz, ax, ay, az, grasp]
             # FOTS gripper mirrors both fingers from single control (1-DOF parallel jaw)
@@ -237,7 +257,7 @@ def main():
                     device.recording_toggled = False
                 
                 # Record the transition
-                recorder.record_step(obs, action, reward, done)
+                recorder.record_step(obs_before, action, reward, done)
             elif device.recording_toggled:
                 print("[INFO] Recording Stopped.")
                 recorder.save_episode()
