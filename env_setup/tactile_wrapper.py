@@ -163,20 +163,15 @@ class TactileObservationWrapper(Wrapper):
                 rgb = self.fots_render.generate(z_norm)
                 obs[f"tactile_{side}"] = rgb  # Keep as RGB
             else:
-                # Fast Mode: High-Contrast Depth Visualization
-                # Compute depth difference from baseline for better contrast
-                baseline = self.baseline_l if side == "left" else self.baseline_r
-                depth_diff = baseline - z_norm  # Positive = object closer than baseline
-                
-                # Enhance contrast: focus on the deformation range
-                # Map [0, 0.3] depth difference to full [0, 255] color range
-                depth_diff_enhanced = np.clip(depth_diff / 0.3, 0.0, 1.0)
-                depth_vis = (depth_diff_enhanced * 255).astype(np.uint8)
-                
-                # Use jet colormap: blue=no contact, red=maximum contact
-                jet_bgr = cv2.applyColorMap(depth_vis, cv2.COLORMAP_JET)
-                # Convert to RGB to match fidelity mode format
-                obs[f"tactile_{side}"] = cv2.cvtColor(jet_bgr, cv2.COLOR_BGR2RGB)
+                # Fast Mode: Output raw depth map (normalized z_norm [0, 1])
+                # This matches the exact input expected by the FOTS MLP engine.
+                obs[f"tactile_{side}"] = z_norm
+        
+        # Inject metadata for the DataRecorder
+        # nut_id: 0 = Square, 1 = Round (from underlying environment)
+        obs["_nut_type"] = getattr(self.env, "nut_id", -1)
+        # render_type: 0 = Fast (Raw Depth), 1 = Fidelity (RGB)
+        obs["_render_type"] = 1 if self.fidelity_mode else 0
                 
         return obs
 

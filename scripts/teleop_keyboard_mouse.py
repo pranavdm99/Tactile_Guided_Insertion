@@ -6,6 +6,7 @@ Displays real-time tactile imprints from FOTS sensors.
 """
 
 import argparse
+import os
 import numpy as np
 import cv2
 import robosuite as suite
@@ -168,6 +169,10 @@ def main():
     obs = env.reset()
     env.render()
     
+    # Baselines for tactile visualization HUD (only used in Fast Mode)
+    display_baseline_l = None
+    display_baseline_r = None
+    
     # Enable geometry group 4 (gripper visualization) AFTER first render
     # This ensures the viewer is initialized before we modify vopt
     # (base_env was set above for recorder metadata)
@@ -204,9 +209,14 @@ def main():
                         if hasattr(base_env.viewer.viewer, 'opt'):
                             base_env.viewer.viewer.opt.geomgroup[4] = 1
                 
+                # Reset display baselines
+                display_baseline_l = None
+                display_baseline_r = None
+                
                 if device.recording:
                     recorder.save_episode(discard=True)
                 continue
+
 
             # Observation before this control step (matches BC convention: predict a_t from s_t).
             obs_before = obs
@@ -230,13 +240,35 @@ def main():
             
             # Display tactile observations if available
             if not args.no_tactile_display and "tactile_left" in obs and "tactile_right" in obs:
-                # Convert from RGB (wrapper format) to BGR (OpenCV display format)
-                tactile_left_bgr = cv2.cvtColor(obs["tactile_left"], cv2.COLOR_RGB2BGR)
-                tactile_right_bgr = cv2.cvtColor(obs["tactile_right"], cv2.COLOR_RGB2BGR)
+                tl, tr = obs["tactile_left"], obs["tactile_right"]
+                
+                # Check if we are receiving raw depth (float32) or RGB (uint8)
+                if tl.dtype == np.float32:
+                    # Initialize visual baselines with the very first frame after reset
+                    if display_baseline_l is None:
+                        display_baseline_l = tl.copy()
+                        display_baseline_r = tr.copy()
+                    
+                    # Locally convert raw depth to heatmap for display only
+                    # We visualize the DIFFERENCE from baseline (deformation)
+                    diff_l = display_baseline_l - tl
+                    diff_r = display_baseline_r - tr
+                    
+                    def to_heatmap(diff):
+                        # High-sensitivity mapping: 0.01m (1cm) full-scale range
+                        z_u8 = (np.clip(diff / 0.01, 0.0, 1.0) * 255).astype(np.uint8)
+                        return cv2.applyColorMap(z_u8, cv2.COLORMAP_JET)
+                    
+                    left_display_bgr = to_heatmap(diff_l)
+                    right_display_bgr = to_heatmap(diff_r)
+                else:
+                    # Already RGB (Fidelity Mode)
+                    left_display_bgr = cv2.cvtColor(tl, cv2.COLOR_RGB2BGR)
+                    right_display_bgr = cv2.cvtColor(tr, cv2.COLOR_RGB2BGR)
                 
                 # Resize for better visibility (from 320x240 to 900x675 each)
-                left_display = cv2.resize(tactile_left_bgr, (675, 900), interpolation=cv2.INTER_CUBIC)
-                right_display = cv2.resize(tactile_right_bgr, (675, 900), interpolation=cv2.INTER_CUBIC)
+                left_display = cv2.resize(left_display_bgr, (675, 900), interpolation=cv2.INTER_CUBIC)
+                right_display = cv2.resize(right_display_bgr, (675, 900), interpolation=cv2.INTER_CUBIC)
                 
                 # Stack horizontally and display
                 combined = np.hstack([left_display, right_display])

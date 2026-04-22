@@ -153,10 +153,36 @@ def play_demos(filepath, fps=20):
             
             num_steps = t_l.shape[0]
             
+            # Use the first frame as the baseline for visualization for this demo
+            # (Raw depth only)
+            baseline_l = t_l[0].copy() if t_l.dtype == np.float32 else None
+            baseline_r = t_r[0].copy() if t_r.dtype == np.float32 else None
+            
             for i in range(num_steps):
-                # 1. Create Playback Canvas
-                left_view = cv2.resize(t_l[i], (W_VIS//2, H_TACTILE), interpolation=cv2.INTER_NEAREST)
-                right_view = cv2.resize(t_r[i], (W_VIS//2, H_TACTILE), interpolation=cv2.INTER_NEAREST)
+                # 1. Prepare tactile views
+                tl_frame = t_l[i]
+                tr_frame = t_r[i]
+                
+                if tl_frame.dtype == np.float32:
+                    # Compute deformation relative to the first frame
+                    diff_l = baseline_l - tl_frame
+                    diff_r = baseline_r - tr_frame
+                    
+                    # Raw depth -> Heatmap
+                    def to_heatmap(diff):
+                        # High-sensitivity mapping: 0.01m (1cm) full-scale range
+                        z_u8 = (np.clip(diff / 0.01, 0.0, 1.0) * 255).astype(np.uint8)
+                        return cv2.applyColorMap(z_u8, cv2.COLORMAP_JET)
+                    
+                    left_view_bgr = to_heatmap(diff_l)
+                    right_view_bgr = to_heatmap(diff_r)
+                else:
+                    # Already RGB (uint8)
+                    left_view_bgr = cv2.cvtColor(tl_frame, cv2.COLOR_RGB2BGR)
+                    right_view_bgr = cv2.cvtColor(tr_frame, cv2.COLOR_RGB2BGR)
+
+                left_view = cv2.resize(left_view_bgr, (W_VIS//2, H_TACTILE), interpolation=cv2.INTER_NEAREST)
+                right_view = cv2.resize(right_view_bgr, (W_VIS//2, H_TACTILE), interpolation=cv2.INTER_NEAREST)
                 tactile_row = np.hstack([left_view, right_view])
                 
                 playback_canvas = np.zeros((H_TOTAL, W_VIS, 3), dtype=np.uint8)

@@ -67,9 +67,10 @@ def plot_demo(filepath, demo_id):
         # 4. Tactile Intensity (The "Signal" check)
         ax = axes[3]
         if tactile_l is not None:
-            # Calculate average intensity per frame
-            l_intensity = np.mean(tactile_l, axis=(1, 2, 3))
-            r_intensity = np.mean(tactile_r, axis=(1, 2, 3))
+            # Calculate average intensity per frame (dynamic axis selection for 1-channel vs 3-channel)
+            calc_axes = tuple(range(1, tactile_l.ndim))
+            l_intensity = np.mean(tactile_l, axis=calc_axes)
+            r_intensity = np.mean(tactile_r, axis=calc_axes)
             # Subtract baseline (first frame) to show delta
             l_delta = l_intensity - l_intensity[0]
             r_delta = r_intensity - r_intensity[0]

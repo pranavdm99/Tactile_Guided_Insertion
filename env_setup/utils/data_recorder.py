@@ -42,6 +42,9 @@ class DataRecorder:
         
         # Metadata to identify which object keys to store dynamically
         self.object_keys = []
+        # Per-episode metadata
+        self._nut_type = None
+        self._render_type = None
         # Optional: serialized Robomimic `env_meta` written to data.attrs["env_args"] on first save
         self._robomimic_env_context = None
 
@@ -60,6 +63,8 @@ class DataRecorder:
         # Re-discover nut observables each episode: active nut switches name
         # (SquareNut_* vs RoundNut_*) when nut_type is None and the env randomizes per reset.
         self.object_keys = []
+        self._nut_type = None
+        self._render_type = None
         self.current_episode = {
             "obs": {},
             "actions": [],
@@ -76,23 +81,52 @@ class DataRecorder:
             reward (float): Reward received.
             done (bool): Termination flag.
         """
-        # 1. Process and extract observations
+        # 1. Capture Episode Metadata (only once per episode)
+        nut_id = obs.get("_nut_type", -1)
+        if self._nut_type is None:
+            self._nut_type = int(nut_id)
+        if self._render_type is None:
+            self._render_type = int(obs.get("_render_type", -1))
+
+        # 2. Key Standardization Logic
+        # We rename keys like RoundNut_pos to object_pos to ensure consistent datasets
+        nut_prefix = "SquareNut" if nut_id == 0 else "RoundNut" if nut_id == 1 else None
+        
         target_keys = [
             "robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos",
             "tactile_left", "tactile_right", "agentview_image"
         ]
         
-        # Dynamically discover object keys (RoundNut or SquareNut)
-        if not self.object_keys:
-            self.object_keys = [k for k in obs.keys() if ("Nut" in k and "image" not in k)]
+        # Build processed observation for this step
+        processed_obs = {}
         
-        target_keys.extend(self.object_keys)
-        
+        # Add standardized object keys
+        if nut_prefix:
+            for k in obs.keys():
+                if k.startswith(nut_prefix):
+                    standard_k = k.replace(nut_prefix, "object")
+                    processed_obs[standard_k] = obs[k]
+                    if standard_k not in target_keys:
+                        target_keys.append(standard_k)
+
+        # Add explicit robot and vision keys
         for k in target_keys:
-            if k not in obs:
+            if k in obs:
+                processed_obs[k] = obs[k]
+            elif k not in processed_obs:
                 continue
                 
-            val = obs[k]
+        # Add nut_type as an observation array (for robot training)
+        processed_obs["nut_type"] = np.array([self._nut_type], dtype=np.int32)
+        if "nut_type" not in target_keys:
+            target_keys.append("nut_type")
+
+        # 3. Process and Buffer
+        for k in target_keys:
+            if k not in processed_obs:
+                continue
+                
+            val = processed_obs[k]
             
             # Application-specific processing
             if "tactile" in k:
@@ -104,7 +138,7 @@ class DataRecorder:
             
             self.current_episode["obs"][k].append(val)
             
-        # 2. Store actions and signals
+        # 4. Store actions and signals
         self.current_episode["actions"].append(action)
         self.current_episode["rewards"].append(reward)
         self.current_episode["dones"].append(done)
@@ -168,6 +202,8 @@ class DataRecorder:
             
             # Add some metadata to the demo
             ep_grp.attrs["num_samples"] = len(self.current_episode["actions"])
+            ep_grp.attrs["nut_type"] = self._nut_type
+            ep_grp.attrs["render_type"] = self._render_type
             
             # Update global metadata on first save
             if "total" not in f.attrs:
