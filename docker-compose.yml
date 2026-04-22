@@ -3,7 +3,9 @@ services:
     build: .
     image: tactile_insertion:latest
     container_name: tactile_insertion_container
-
+    privileged: true
+    devices:
+      - /dev/input:/dev/input
     deploy:
       resources:
         reservations:
@@ -16,8 +18,15 @@ services:
       - DISPLAY=${DISPLAY}
       - XAUTHORITY=/tmp/.docker.xauth
       - MUJOCO_GL=egl
+<<<<<<< Updated upstream
       - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts
 
+=======
+      - PYOPENGL_PLATFORM=egl
+      - __NV_PRIME_RENDER_OFFLOAD=1
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils
+>>>>>>> Stashed changes
     volumes:
       - .:/app
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
