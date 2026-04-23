@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     vim \
     tmux \
-    libgl1-mesa-dev \
-    libgl1-mesa-glx \
+    libgl-dev \
+    libgl1 \
     libosmesa6-dev \
     libglew-dev \
     libglib2.0-0 \
@@ -40,10 +40,10 @@ ENV NVIDIA_VISIBLE_DEVICES all
 ENV NVIDIA_DRIVER_CAPABILITIES all
 ENV MUJOCO_GL=egl
 ENV QT_X11_NO_MITSHM=1
-ENV PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils"
+ENV PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts"
 
 # Set PYTHONPATH
-RUN echo 'export PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils"' >> /root/.bashrc
+RUN echo 'export PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts"' >> /root/.bashrc
 
 # Configure Entrypoint
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

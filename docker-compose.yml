@@ -18,11 +18,10 @@ services:
       - DISPLAY=${DISPLAY}
       - XAUTHORITY=/tmp/.docker.xauth
       - MUJOCO_GL=egl
-      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts
-      - PYOPENGL_PLATFORM=egl
-      - __NV_PRIME_RENDER_OFFLOAD=1
+      - MUJOCO_EGL_DEVICE_ID=0
+      - __GLVND_EXPOSE_LIBGLX=1
       - __GLX_VENDOR_LIBRARY_NAME=nvidia
-      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils
+      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts
     volumes:
       - .:/app
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
