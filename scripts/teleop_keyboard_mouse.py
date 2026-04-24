@@ -297,6 +297,10 @@ def main():
 
             if done:
                 print("[INFO] Episode done. Resetting...")
+                if device.recording:
+                    recorder.save_episode()
+                    device.recording = False
+                
                 obs = env.reset()
                 env.render()
 

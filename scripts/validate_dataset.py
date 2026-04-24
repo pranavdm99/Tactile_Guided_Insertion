@@ -4,6 +4,17 @@ import numpy as np
 import cv2
 import argparse
 import os
+import sys
+
+# Optional FOTS imports (initialized only if needed for reconstruction)
+try:
+    import torch
+    # Ensure project root is in path
+    sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+    from fots_sim.mlp_model import MLP
+    from fots_sim.utils.mlp_render import MLPRender
+except ImportError:
+    torch = None
 
 def validate_hdf5(filepath):
     """
@@ -35,8 +46,18 @@ def validate_hdf5(filepath):
         
         print("  Observations:")
         obs = sample_demo["obs"]
-        for k in obs.keys():
-            print(f"    - {k}: {obs[k].shape}")
+        for k in sorted(obs.keys()):
+            # Highlight standardized object keys
+            prefix = "⭐ " if k.startswith("object_") else "  "
+            print(f"    {prefix} {k}: {obs[k].shape} ({obs[k].dtype})")
+
+        # 4. Per-Demo Attributes
+        print("\nDemo Attributes:")
+        for k, v in sample_demo.attrs.items():
+            desc = ""
+            if k == "nut_type": desc = "(0=Square, 1=Round)"
+            elif k == "render_type": desc = "(0=Fast, 1=Fidelity)"
+            print(f"  - {k}: {v} {desc}")
 
         # 3. Deep validation: check for blank tactile images
         print("\nVerifying Tactile Signal...")
@@ -51,7 +72,9 @@ def validate_hdf5(filepath):
             
             # Check if all pixels are the same (unlikely in real sensor data)
             for step in range(t_l.shape[0]):
-                if np.all(t_l[step] == t_l[step][0,0,0]) and np.all(t_r[step] == t_r[step][0,0,0]):
+                pixel_val_l = t_l[step].flatten()[0]
+                pixel_val_r = t_r[step].flatten()[0]
+                if np.all(t_l[step] == pixel_val_l) and np.all(t_r[step] == pixel_val_r):
                     blank_count += 1
         
         if blank_count == 0:
@@ -123,7 +146,36 @@ def draw_timeseries_panel(actions, rewards, dones, current_idx, width=400, heigh
     
     return panel
 
-def play_demos(filepath, fps=20):
+def init_fots_engine():
+    """Lazily initializes the FOTS rendering engine."""
+    if torch is None:
+        print("[ERROR] PyTorch or FOTS modules not found. Cannot reconstruct.")
+        return None
+        
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Initializing FOTS Engine on {device}...")
+    
+    base_dir = os.path.join(os.path.dirname(__file__), "..", "fots_sim")
+    if not os.path.exists(base_dir):
+        # Fallback for container absolute path
+        base_dir = "/app/fots_sim"
+
+    try:
+        bg_img = np.load(os.path.join(base_dir, "assets/digit_bg.npy"))
+        bg_depth = np.load(os.path.join(base_dir, "utils/ini_depth_extent.npy"))
+        bg_mlp = np.load(os.path.join(base_dir, "utils/ini_bg_mlp.npy"))
+        
+        model = MLP().to(device)
+        model_path = os.path.join(base_dir, "models/mlp_n2c_r.pth")
+        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+        model.eval()
+        
+        return MLPRender(background_img=bg_img, bg_depth=bg_depth, bg_render=bg_mlp, model=model)
+    except Exception as e:
+        print(f"[ERROR] Failed to initialize FOTS engine: {e}")
+        return None
+
+def play_demos(filepath, fps=20, use_recon=True):
     """
     Plays back the recorded demonstrations with overlays and analytics.
     """
@@ -153,29 +205,47 @@ def play_demos(filepath, fps=20):
             
             num_steps = t_l.shape[0]
             
+            # 2. Check if we need FOTS reconstruction
+            is_fast_mode = (t_l.dtype == np.float32)
+            fots_render = None
+            if is_fast_mode and use_recon:
+                if not hasattr(play_demos, "_fots_engine"):
+                    play_demos._fots_engine = init_fots_engine()
+                fots_render = play_demos._fots_engine
+            
             # Use the first frame as the baseline for visualization for this demo
             # (Raw depth only)
-            baseline_l = t_l[0].copy() if t_l.dtype == np.float32 else None
-            baseline_r = t_r[0].copy() if t_r.dtype == np.float32 else None
+            baseline_l = t_l[0].copy() if is_fast_mode else None
+            baseline_r = t_r[0].copy() if is_fast_mode else None
             
             for i in range(num_steps):
                 # 1. Prepare tactile views
                 tl_frame = t_l[i]
                 tr_frame = t_r[i]
                 
-                if tl_frame.dtype == np.float32:
-                    # Compute deformation relative to the first frame
-                    diff_l = baseline_l - tl_frame
-                    diff_r = baseline_r - tr_frame
-                    
-                    # Raw depth -> Heatmap
-                    def to_heatmap(diff):
-                        # High-sensitivity mapping: 0.01m (1cm) full-scale range
-                        z_u8 = (np.clip(diff / 0.01, 0.0, 1.0) * 255).astype(np.uint8)
-                        return cv2.applyColorMap(z_u8, cv2.COLORMAP_JET)
-                    
-                    left_view_bgr = to_heatmap(diff_l)
-                    right_view_bgr = to_heatmap(diff_r)
+                if is_fast_mode:
+                    if fots_render:
+                        # Photorealistic Reconstruction
+                        def render_fots(depth, baseline):
+                            fots_render.bg_depth = baseline
+                            fots_render._pre_scaled_bg = fots_render.bg_depth * fots_render._scale
+                            return fots_render.generate(depth)
+                        
+                        left_view_rgb = render_fots(tl_frame, baseline_l)
+                        right_view_rgb = render_fots(tr_frame, baseline_r)
+                        left_view_bgr = cv2.cvtColor(left_view_rgb, cv2.COLOR_RGB2BGR)
+                        right_view_bgr = cv2.cvtColor(right_view_rgb, cv2.COLOR_RGB2BGR)
+                    else:
+                        # Faster Heatmap view (Fallback or --no-recon)
+                        diff_l = baseline_l - tl_frame
+                        diff_r = baseline_r - tr_frame
+                        
+                        def to_heatmap(diff):
+                            z_u8 = (np.clip(diff / 0.01, 0.0, 1.0) * 255).astype(np.uint8)
+                            return cv2.applyColorMap(z_u8, cv2.COLORMAP_JET)
+                        
+                        left_view_bgr = to_heatmap(diff_l)
+                        right_view_bgr = to_heatmap(diff_r)
                 else:
                     # Already RGB (uint8)
                     left_view_bgr = cv2.cvtColor(tl_frame, cv2.COLOR_RGB2BGR)
@@ -214,8 +284,9 @@ if __name__ == "__main__":
     parser.add_argument("file", type=str, help="Path to HDF5 dataset")
     parser.add_argument("--play", action="store_true", help="Play back the demos")
     parser.add_argument("--fps", type=int, default=20, help="Playback speed (FPS)")
+    parser.add_argument("--no-recon", action="store_true", help="Disable photorealistic reconstruction during playback")
     args = parser.parse_args()
 
     validate_hdf5(args.file)
     if args.play:
-        play_demos(args.file, fps=args.fps)
+        play_demos(args.file, fps=args.fps, use_recon=not args.no_recon)

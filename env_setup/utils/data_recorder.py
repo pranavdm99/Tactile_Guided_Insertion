@@ -13,7 +13,7 @@ class DataRecorder:
     # Robomimic robosuite environments use EnvType.ROBOSUITE_TYPE == 1 (see robomimic.envs.env_base).
     _ROBOMIMIC_ROBOSUITE_TYPE = 1
 
-    def __init__(self, output_dir, downsample_size=(64, 48), filename=None):
+    def __init__(self, output_dir, downsample_size=(128, 96), filename=None):
         """
         Args:
             output_dir (str): Directory where HDF5 files will be saved.
