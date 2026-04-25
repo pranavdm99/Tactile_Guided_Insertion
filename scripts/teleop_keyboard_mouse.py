@@ -150,6 +150,7 @@ def main():
                 "control_freq": getattr(base_env, "control_freq", 20),
                 "horizon": args.horizon,
                 "nut_type": args.nut,
+                "reward_shaping": True,
             },
         }
     )
@@ -157,9 +158,9 @@ def main():
     # 4. Setup tactile display window if enabled
     tactile_win = None
     if not args.no_tactile_display:
-        tactile_win = "FOTS Tactile Sensors"
+        tactile_win = "FOTS Sensor Dashboard"
         cv2.namedWindow(tactile_win, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(tactile_win, 1350, 900)  # Width for 2 sensors side-by-side
+        cv2.resizeWindow(tactile_win, 1280, 960)  # 2x2 grid: [agentview | wrist] / [tactile_l | tactile_r]
     
     print("[INFO] Teleoperation Started (FOTS-Enabled Robosuite).")
     print("Controls: Mouse=Pos, Arrows/PgUpDn=Rot, Enter=Grasp, Backspace=Reset, ESC=Quit")
@@ -238,45 +239,68 @@ def main():
                     if hasattr(base_env.viewer.viewer, 'opt'):
                         base_env.viewer.viewer.opt.geomgroup[4] = 1
             
-            # Display tactile observations if available
+            # Display 2x2 Sensor Dashboard
             if not args.no_tactile_display and "tactile_left" in obs and "tactile_right" in obs:
+                # --- Panel dimensions (each cell = 640x480) ---
+                CELL_W, CELL_H = 640, 480
+
+                # ── Top-left: Agentview ──
+                if "agentview_image" in obs:
+                    av = obs["agentview_image"]
+                    av = np.flip(av, axis=0)  # MuJoCo vertical flip
+                    av_bgr = cv2.cvtColor(av, cv2.COLOR_RGB2BGR)
+                    top_left = cv2.resize(av_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_LINEAR)
+                else:
+                    top_left = np.zeros((CELL_H, CELL_W, 3), dtype=np.uint8)
+                cv2.putText(top_left, "Agentview", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Top-right: Wrist Camera ──
+                if "robot0_eye_in_hand_image" in obs:
+                    wc = obs["robot0_eye_in_hand_image"]
+                    wc = np.flip(wc, axis=0)  # MuJoCo vertical flip
+                    wc_bgr = cv2.cvtColor(wc, cv2.COLOR_RGB2BGR)
+                    top_right = cv2.resize(wc_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_LINEAR)
+                else:
+                    top_right = np.zeros((CELL_H, CELL_W, 3), dtype=np.uint8)
+                cv2.putText(top_right, "Wrist Camera", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Tactile: raw depth → heatmap, or RGB direct ──
                 tl, tr = obs["tactile_left"], obs["tactile_right"]
-                
-                # Check if we are receiving raw depth (float32) or RGB (uint8)
                 if tl.dtype == np.float32:
-                    # Initialize visual baselines with the very first frame after reset
                     if display_baseline_l is None:
                         display_baseline_l = tl.copy()
                         display_baseline_r = tr.copy()
-                    
-                    # Locally convert raw depth to heatmap for display only
-                    # We visualize the DIFFERENCE from baseline (deformation)
-                    diff_l = display_baseline_l - tl
-                    diff_r = display_baseline_r - tr
-                    
                     def to_heatmap(diff):
-                        # High-sensitivity mapping: 0.01m (1cm) full-scale range
                         z_u8 = (np.clip(diff / 0.01, 0.0, 1.0) * 255).astype(np.uint8)
                         return cv2.applyColorMap(z_u8, cv2.COLORMAP_JET)
-                    
-                    left_display_bgr = to_heatmap(diff_l)
-                    right_display_bgr = to_heatmap(diff_r)
+                    bot_left_bgr  = to_heatmap(display_baseline_l - tl)
+                    bot_right_bgr = to_heatmap(display_baseline_r - tr)
                 else:
-                    # Already RGB (Fidelity Mode)
-                    left_display_bgr = cv2.cvtColor(tl, cv2.COLOR_RGB2BGR)
-                    right_display_bgr = cv2.cvtColor(tr, cv2.COLOR_RGB2BGR)
-                
-                # Resize for better visibility (from 320x240 to 900x675 each)
-                left_display = cv2.resize(left_display_bgr, (675, 900), interpolation=cv2.INTER_CUBIC)
-                right_display = cv2.resize(right_display_bgr, (675, 900), interpolation=cv2.INTER_CUBIC)
-                
-                # Stack horizontally and display
-                combined = np.hstack([left_display, right_display])
+                    bot_left_bgr  = cv2.cvtColor(tl, cv2.COLOR_RGB2BGR)
+                    bot_right_bgr = cv2.cvtColor(tr, cv2.COLOR_RGB2BGR)
 
-                # Overlay Recording Status
+                # ── Bottom-left: Tactile Left ──
+                bot_left = cv2.resize(bot_left_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_CUBIC)
+                cv2.putText(bot_left, "Tactile Left", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Bottom-right: Tactile Right ──
+                bot_right = cv2.resize(bot_right_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_CUBIC)
+                cv2.putText(bot_right, "Tactile Right", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Assemble 2x2 grid ──
+                top_row = np.hstack([top_left, top_right])
+                bot_row = np.hstack([bot_left, bot_right])
+                combined = np.vstack([top_row, bot_row])
+
+                # ── Recording indicator (top-left corner of the whole grid) ──
                 if device.recording:
-                    cv2.putText(combined, "REC", (50, 80), cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 0, 255), 4)
-                    cv2.circle(combined, (30, 65), 15, (0, 0, 255), -1)
+                    cv2.circle(combined, (30, 30), 14, (0, 0, 255), -1)
+                    cv2.putText(combined, "REC", (52, 42),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
 
                 cv2.imshow(tactile_win, combined)
                 cv2.waitKey(1)

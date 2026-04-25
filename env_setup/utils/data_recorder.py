@@ -94,7 +94,7 @@ class DataRecorder:
         
         target_keys = [
             "robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos",
-            "tactile_left", "tactile_right", "agentview_image"
+            "tactile_left", "tactile_right", "agentview_image", "robot0_eye_in_hand_image"
         ]
         
         # Build processed observation for this step

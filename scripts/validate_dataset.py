@@ -201,7 +201,9 @@ def play_demos(filepath, fps=20, use_recon=True):
             t_l = obs["tactile_left"][:]
             t_r = obs["tactile_right"][:]
             v_key = "agentview_image"
+            w_key = "robot0_eye_in_hand_image"
             has_vis = v_key in obs
+            has_wrist = w_key in obs
             
             num_steps = t_l.shape[0]
             
@@ -256,13 +258,25 @@ def play_demos(filepath, fps=20, use_recon=True):
                 tactile_row = np.hstack([left_view, right_view])
                 
                 playback_canvas = np.zeros((H_TOTAL, W_VIS, 3), dtype=np.uint8)
+                
+                # Top Row: Camera Views (Split 50/50 if both exist)
                 if has_vis:
                     vis_frame = obs[v_key][i]
                     vis_frame = np.flip(vis_frame, axis=0) # MuJoCo flip
                     vis_frame_bgr = cv2.cvtColor(vis_frame, cv2.COLOR_RGB2BGR)
-                    vis_frame_res = cv2.resize(vis_frame_bgr, (W_VIS, H_AGENT))
-                    playback_canvas[:H_AGENT, :W_VIS] = vis_frame_res
+                    w_slice = W_VIS//2 if has_wrist else W_VIS
+                    vis_frame_res = cv2.resize(vis_frame_bgr, (w_slice, H_AGENT))
+                    playback_canvas[:H_AGENT, :w_slice] = vis_frame_res
                 
+                if has_wrist:
+                    wrist_frame = obs[w_key][i]
+                    wrist_frame = np.flip(wrist_frame, axis=0)
+                    wrist_frame_bgr = cv2.cvtColor(wrist_frame, cv2.COLOR_RGB2BGR)
+                    w_slice = W_VIS//2 if has_vis else W_VIS
+                    wrist_frame_res = cv2.resize(wrist_frame_bgr, (w_slice, H_AGENT))
+                    x_start = W_VIS//2 if has_vis else 0
+                    playback_canvas[:H_AGENT, x_start:x_start+w_slice] = wrist_frame_res
+
                 playback_canvas[H_AGENT:, :W_VIS] = tactile_row
                 cv2.putText(playback_canvas, f"{d_key} | Step: {i}/{num_steps}", (10, 30), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)

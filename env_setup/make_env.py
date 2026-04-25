@@ -118,7 +118,11 @@ def make_fots_env(
         has_offscreen_renderer=kwargs.pop("has_offscreen_renderer", True),
         use_camera_obs=kwargs.pop("use_camera_obs", True),
         randomize_peg=randomize_peg,
-        nut_type=nut_type
+        nut_type=nut_type,
+        camera_names=["agentview", "robot0_eye_in_hand"],
+        camera_heights=[256, 256],
+        camera_widths=[256, 256],
+        reward_shaping=True,   # Dense staged rewards: grasp→lift→hover→insert
     )
     suite_kwargs.update(kwargs)
     
