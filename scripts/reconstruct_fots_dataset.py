@@ -167,6 +167,77 @@ def reconstruct_file(src_path: str, dst_path: str, fots_render: MLPRender) -> bo
 
 
 # ---------------------------------------------------------------------------
+# Public API — importable by train_bc.py
+# ---------------------------------------------------------------------------
+
+def prepare_training_files(
+    target: str,
+    device: "torch.device | None" = None,
+    overwrite: bool = False,
+) -> list[str]:
+    """
+    Given a file path or directory, ensure all HDF5 datasets have uint8 tactile
+    data (FOTS RGB renders) and return a list of paths that are ready for training.
+
+    Rules:
+      - Already uint8  (Fidelity mode)  → original path returned as-is.
+      - float32 depth  (Fast mode)      → reconstructed to ``_fots.hdf5``;
+                                           the reconstructed path is returned.
+      - FOTS engine is loaded only when at least one file needs reconstruction.
+
+    Args:
+        target:    Path to a single .hdf5 file or a directory of .hdf5 files.
+        device:    Torch device for FOTS MLP inference (auto-detected if None).
+        overwrite: If True, redo reconstruction even when a _fots file exists.
+
+    Returns:
+        List of absolute file paths ready for training (may be empty on error).
+    """
+    files = collect_files(target)
+    if not files:
+        return []
+
+    ready:                list[str] = []
+    needs_reconstruction: list[str] = []
+
+    # Quick dtype probe
+    for f in files:
+        try:
+            with h5py.File(f, "r") as hf:
+                first_demo = sorted(hf["data"].keys(), key=lambda k: int(k.split("_")[1]))[0]
+                dtype = hf[f"data/{first_demo}/obs/tactile_left"].dtype
+            if dtype == np.uint8:
+                print(f"  [READY] {os.path.basename(f)} — already uint8 RGB, no reconstruction needed.")
+                ready.append(f)
+            else:
+                needs_reconstruction.append(f)
+        except Exception as e:
+            print(f"  [WARN] Could not probe {os.path.basename(f)}: {e} — skipping.")
+
+    # Reconstruct only files that need it
+    if needs_reconstruction:
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"[INFO] Loading FOTS engine on {device} for {len(needs_reconstruction)} file(s)...")
+        fots_render = load_fots_engine(device)
+        print("[INFO] FOTS engine ready.")
+
+        for src_path in needs_reconstruction:
+            dst_path = make_dst_path(src_path)
+            if os.path.exists(dst_path) and not overwrite:
+                print(f"  [CACHED] {os.path.basename(dst_path)} already exists, using it.")
+                ready.append(dst_path)
+                continue
+            try:
+                success = reconstruct_file(src_path, dst_path, fots_render)
+                ready.append(dst_path if success else src_path)
+            except Exception as e:
+                print(f"  [ERROR] Reconstruction failed for {os.path.basename(src_path)}: {e}")
+
+    return ready
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 

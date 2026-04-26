@@ -5,6 +5,8 @@ gymnasium
 h5py
 scipy
 torch
+torchvision
+wandb
 opencv-python
 matplotlib
 pybullet
