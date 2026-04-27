@@ -131,6 +131,10 @@ class VisualEncoder(nn.Module):
     def __init__(self, out_dim: int = 256, freeze_backbone: bool = True):
         super().__init__()
 
+        # Log weight loading for transparency
+        import torch.hub
+        print(f"[VisualEncoder] Loading ResNet-18 weights (Managed by torch.hub at: {torch.hub.get_dir()})")
+
         resnet = tv_models.resnet18(weights=tv_models.ResNet18_Weights.IMAGENET1K_V1)
         # Strip classification head; backbone ends with AdaptiveAvgPool → (B, 512, 1, 1)
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
@@ -150,6 +154,10 @@ class VisualEncoder(nn.Module):
             for p in self.backbone.parameters():
                 p.requires_grad = False
 
+        # GPU-based augmentation
+        import torchvision.transforms as T
+        self.aug = T.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.05)
+
     def unfreeze(self):
         """Unfreeze backbone for fine-tuning (call after warm-up epochs)."""
         for p in self.backbone.parameters():
@@ -157,7 +165,11 @@ class VisualEncoder(nn.Module):
 
     def _normalise(self, img: torch.Tensor) -> torch.Tensor:
         """Expects (B, 3, H, W) float32 in [0, 1]."""
-        return (img - self.img_mean) / self.img_std
+        x = (img - self.img_mean) / self.img_std
+        # Apply augmentation on GPU during training
+        if self.training:
+            x = self.aug(x)
+        return x
 
     def forward(self, img: torch.Tensor) -> torch.Tensor:
         """

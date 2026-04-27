@@ -249,8 +249,7 @@ def collect_files(target: str) -> list[str]:
             glob.glob(os.path.join(target, "**/*.hdf5"), recursive=True) +
             glob.glob(os.path.join(target, "**/*.h5"),   recursive=True)
         )
-        # Never re-process already-reconstructed files
-        files = [f for f in files if "_fots" not in os.path.basename(f)]
+        # Include all HDF5 files; ready-to-train files will be identified by dtype later
         return files
     else:
         print(f"[ERROR] Path does not exist: {target}")

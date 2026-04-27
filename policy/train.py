@@ -111,25 +111,35 @@ class TactileInsertionDataset(Dataset):
 
     def __init__(
         self,
-        data_paths: list[str],
-        seq_len:    int   = 20,
-        gamma:      float = 0.99,
-        floor:      float = 0.1,
-        augment:    bool  = True,
+        data_paths:   list[str],
+        seq_len:      int   = 20,
+        gamma:        float = 0.99,
+        floor:        float = 0.1,
+        augment:      bool  = True,
+        cache_to_ram: bool  = True,
     ):
         self.seq_len = seq_len
         self.gamma   = gamma
         self.floor   = floor
         self.augment = augment
+        self.cache_to_ram = cache_to_ram
 
         # List of (file_path, demo_key, start_step_index) tuples
         self._windows: list[tuple[str, str, int]] = []
         
         # Cache for HDF5 file handles (populated lazily per-worker)
         self._file_handles: dict[str, h5py.File] = {}
+        
+        # RAM Cache
+        self._data_cache: dict[str, dict[str, dict[str, np.ndarray]]] = {}
 
         for path in data_paths:
             self._index_file(path)
+
+        if self.cache_to_ram:
+            print(f"[Dataset] Pre-loading {len(data_paths)} files into RAM...")
+            for path in data_paths:
+                self._load_file_to_ram(path)
 
         if len(self._windows) == 0:
             raise RuntimeError(
@@ -141,9 +151,20 @@ class TactileInsertionDataset(Dataset):
 
         print(
             f"[Dataset] {len(self._windows):,} windows "
-            f"| seq_len={seq_len} | augment={augment} "
-            f"| {len(data_paths)} file(s)"
+            f"| seq_len={seq_len} | augment={augment} | cache_to_ram={cache_to_ram}"
         )
+
+    def _load_file_to_ram(self, path: str) -> None:
+        self._data_cache[path] = {}
+        with h5py.File(path, "r") as f:
+            data = f["data"]
+            for dk in data.keys():
+                demo = data[dk]
+                self._data_cache[path][dk] = {
+                    "obs": {k: demo["obs"][k][:] for k in demo["obs"].keys()},
+                    "actions": demo["actions"][:],
+                    "rewards": demo["rewards"][:],
+                }
 
     # ──────────────────────────────────────────────── #
 
@@ -174,38 +195,61 @@ class TactileInsertionDataset(Dataset):
         path, dk, start = self._windows[idx]
         end = start + self.seq_len
 
-        # Lazy init HDF5 handle (keeps it open per-worker, removes massive I/O overhead)
-        if path not in self._file_handles:
-            self._file_handles[path] = h5py.File(path, "r", swmr=True)
+        if self.cache_to_ram:
+            demo    = self._data_cache[path][dk]
+            obs_raw = demo["obs"]
             
-        f = self._file_handles[path]
-        demo    = f[f"data/{dk}"]
-        obs_raw = demo["obs"]
+            # ── Observations ──
+            obs = {}
+            for k in _IMG_KEYS:
+                if k in obs_raw:
+                    obs[k] = obs_raw[k][start:end]
+                else:
+                    ref = obs_raw["agentview_image"]
+                    obs[k] = np.zeros((self.seq_len, *ref.shape[1:]), dtype=np.uint8)
+            
+            for k in _FLOAT_KEYS:
+                if k in obs_raw:
+                    obs[k] = obs_raw[k][start:end].astype(np.float32)
+            
+            # ── Actions and RTG ──
+            actions = demo["actions"][start:end].astype(np.float32)
+            rewards = demo["rewards"][:].astype(np.float32)
+        else:
+            # Lazy init HDF5 handle (keeps it open per-worker, removes massive I/O overhead)
+            if path not in self._file_handles:
+                self._file_handles[path] = h5py.File(path, "r", swmr=True)
+                
+            f = self._file_handles[path]
+            demo    = f[f"data/{dk}"]
+            obs_raw = demo["obs"]
 
-        # ── Image observations ──────────────────────────────────── #
-        obs = {}
-        for k in _IMG_KEYS:
-            if k in obs_raw:
-                obs[k] = obs_raw[k][start:end]    # (T, H, W, 3) uint8
-            else:
-                # Black fallback — e.g. pre-wrist-cam datasets
-                ref   = obs_raw["agentview_image"]
-                obs[k] = np.zeros((self.seq_len, *ref.shape[1:]), dtype=np.uint8)
+            # ── Image observations ──────────────────────────────────── #
+            obs = {}
+            for k in _IMG_KEYS:
+                if k in obs_raw:
+                    obs[k] = obs_raw[k][start:end]    # (T, H, W, 3) uint8
+                else:
+                    # Black fallback — e.g. pre-wrist-cam datasets
+                    ref   = obs_raw["agentview_image"]
+                    obs[k] = np.zeros((self.seq_len, *ref.shape[1:]), dtype=np.uint8)
 
-        # ── Float observations ──────────────────────────────────── #
-        for k in _FLOAT_KEYS:
-            if k in obs_raw:
-                obs[k] = obs_raw[k][start:end].astype(np.float32)
+            # ── Float observations ──────────────────────────────────── #
+            for k in _FLOAT_KEYS:
+                if k in obs_raw:
+                    obs[k] = obs_raw[k][start:end].astype(np.float32)
 
-        # ── Actions and RTG ──────────────────────────────────────── #
-        actions = demo["actions"][start:end].astype(np.float32)     # (T, 7)
-        rewards = demo["rewards"][:].astype(np.float32)             # full demo
+            # ── Actions and RTG ──────────────────────────────────────── #
+            actions = demo["actions"][start:end].astype(np.float32)     # (T, 7)
+            rewards = demo["rewards"][:].astype(np.float32)             # full demo
+
+        # ── Actions and RTG ──
         rtg_all = compute_rtg(rewards, gamma=self.gamma, floor=self.floor)
         rtg_seq = rtg_all[start:end]                                # (T,)
 
-        # ── Visual augmentation (camera images only) ─────────────────── #
-        if self.augment:
-            obs = self._augment_visual(obs)
+        # ── Visual augmentation (MOVING TO GPU FOR SPEED) ───────────── #
+        # if self.augment:
+        #     obs = self._augment_visual(obs)
 
         # ── Build item dict ───────────────────────────────────────────── #
         item = {

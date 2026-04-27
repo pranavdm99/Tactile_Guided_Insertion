@@ -24,6 +24,11 @@ def hydrate(repo_url="https://github.com/pranavdm99/FOTS.git", branch="FOTS-mujo
     src_repo = os.path.join(root_dir, "FOTS_repo")
     dest_engine = os.path.join(root_dir, "fots_sim")
 
+    # 0. Skip if already hydrated
+    if os.path.exists(dest_engine):
+        logging.info("FOTS engine is already hydrated. Skipping...")
+        return True
+
     # 1. Automatic Cloning if missing
     if not os.path.exists(src_repo):
         logging.info(f"Source repository not found. Cloning from {repo_url}...")

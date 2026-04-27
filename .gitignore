@@ -8,3 +8,7 @@ plots/
 wandb/
 checkpoints/
 eval_videos/
+*.err
+*.out
+runs/
+*.sif

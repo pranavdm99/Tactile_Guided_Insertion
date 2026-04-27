@@ -70,6 +70,8 @@ def parse_args() -> argparse.Namespace:
                    help="Fraction of windows held out for validation.")
     p.add_argument("--num-workers", type=int,   default=4,
                    help="DataLoader worker processes.")
+    p.add_argument("--cache-to-ram", action="store_true",
+                   help="Load the entire dataset into RAM at the start (highly recommended for < 10GB datasets).")
     # Training
     p.add_argument("--epochs",       type=int,   default=200)
     p.add_argument("--batch-size",   type=int,   default=8)
@@ -170,6 +172,7 @@ def main() -> None:
         data_paths=data_files,
         seq_len=args.seq_len,
         augment=True,
+        cache_to_ram=args.cache_to_ram,
     )
 
     val_size   = max(1, int(len(full_ds) * args.val_split))

@@ -1,0 +1,51 @@
+Bootstrap: docker
+From: nvidia/cuda:12.1.1-devel-ubuntu22.04
+
+%environment
+    export DEBIAN_FRONTEND=noninteractive
+    export NVIDIA_VISIBLE_DEVICES=all
+    export NVIDIA_DRIVER_CAPABILITIES=all
+    export MUJOCO_GL=egl
+    export QT_X11_NO_MITSHM=1
+    export PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts"
+
+%files
+    requirements.txt /opt/requirements.txt
+    entrypoint.sh /usr/local/bin/entrypoint.sh
+
+%post
+    # Disable NVIDIA repo which causes timeouts on compute nodes
+    if [ -f /etc/apt/sources.list.d/cuda.list ]; then
+        sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/cuda.list
+    fi
+
+    apt-get update && apt-get install -y \
+        python3 \
+        python3-pip \
+        python3-dev \
+        git \
+        wget \
+        curl \
+        vim \
+        tmux \
+        libgl-dev \
+        libgl1 \
+        libosmesa6-dev \
+        libglew-dev \
+        libglib2.0-0 \
+        patchelf \
+        xvfb \
+        freeglut3-dev \
+        x11-apps
+    rm -rf /var/lib/apt/lists/*
+
+    ln -s /usr/bin/python3 /usr/bin/python
+    pip install --no-cache-dir --upgrade pip
+    
+    # Use the /opt path which is more stable than /tmp
+    pip install --no-cache-dir -r /opt/requirements.txt
+    pip install "numpy<2.0"
+    chmod +x /usr/local/bin/entrypoint.sh
+
+%runscript
+    /usr/local/bin/entrypoint.sh "$@"
