@@ -34,7 +34,7 @@ class GMMHead(nn.Module):
         input_dim: int,
         action_dim: int = 6,
         num_modes:  int = 3,
-        min_std:   float = 0.01,
+        min_std:   float = 0.05,
     ):
         super().__init__()
         self.action_dim = action_dim
@@ -43,8 +43,8 @@ class GMMHead(nn.Module):
 
         # Shared trunk projects LSTM features into a compact space
         self.trunk = nn.Sequential(
-            nn.Linear(input_dim, 512), nn.ReLU(inplace=True),
-            nn.Linear(512, 256),       nn.ReLU(inplace=True),
+            nn.Linear(input_dim, 512), nn.LayerNorm(512), nn.ReLU(inplace=True),
+            nn.Linear(512, 256),       nn.LayerNorm(256), nn.ReLU(inplace=True),
         )
 
         # Per-component Gaussian parameters
@@ -55,6 +55,12 @@ class GMMHead(nn.Module):
 
         # Binary gripper head (logit → sign at inference, BCE at training)
         self.gripper_head = nn.Linear(256, 1)
+
+        # Better initialization for numerical stability
+        nn.init.zeros_(self.mean_head.weight)
+        nn.init.zeros_(self.mean_head.bias)
+        nn.init.zeros_(self.log_std_head.weight)
+        nn.init.constant_(self.log_std_head.bias, -1.0)
 
     # ─────────────────────────────────────────────────── #
     #  Internal forward: returns raw GMM parameters       #
@@ -76,6 +82,9 @@ class GMMHead(nn.Module):
 
         means   = self.mean_head(feat).reshape(*shape, self.num_modes, self.action_dim)
         log_std = self.log_std_head(feat).reshape(*shape, self.num_modes, self.action_dim)
+        
+        # Clamp log_std to prevent exponential overflow in mixed precision
+        log_std = torch.clamp(log_std, min=-5.0, max=2.0)
         stds    = log_std.exp().clamp(min=self.min_std)
 
         weights       = F.softmax(self.log_weight_head(feat), dim=-1)  # (*, K)

@@ -315,12 +315,19 @@ def main() -> None:
             # Global grad norm (requires unscaling for accurate clipping/logging)
             scaler.unscale_(optimizer)
             
+            # Check for non-finite loss before clipping
+            if not torch.isfinite(loss):
+                print(f"\n[WARNING] Non-finite loss at epoch {epoch}, step {step}: {loss.item()}")
+            
             # Per-encoder grad norms (before clipping, after unscale)
             enc_norms = encoder_grad_norms(policy)
             for k, v in enc_norms.items():
                 encoder_norms_accum.setdefault(k, []).append(v)
                 
             grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.clip_grad)
+            
+            if not torch.isfinite(grad_norm):
+                print(f"\n[WARNING] Non-finite grad_norm at epoch {epoch}, step {step}: {grad_norm.item()}")
             
             scaler.step(optimizer)
             scaler.update()
