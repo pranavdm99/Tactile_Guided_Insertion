@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import h5py
 import json
 import os
 import sys
@@ -33,7 +34,7 @@ import sys
 import numpy as np
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader, Subset, random_split
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # ── Project imports ─────────────────────────────────────────────────────── #
@@ -168,34 +169,46 @@ def main() -> None:
 
 
     # ── Dataset / DataLoader ─────────────────────────────────────────── #
-    full_ds = TactileInsertionDataset(
+    # Demo-level split: scan valid demos first, then partition before building windows.
+    # Window-level splitting leaks data because adjacent windows from the same demo
+    # overlap by (seq_len - 1) timesteps, making val loss misleadingly optimistic.
+    _all_demos: list[tuple[str, str]] = []
+    for _p in data_files:
+        with h5py.File(_p, "r") as _f:
+            if "data" not in _f:
+                continue
+            for _dk in sorted(_f["data"].keys()):
+                if "rewards" not in _f["data"][_dk]:
+                    continue
+                _r = _f["data"][_dk]["rewards"][:]
+                if _r.max() < 0.5 or len(_r) < max(100, args.seq_len):
+                    continue
+                _all_demos.append((_p, _dk))
+
+    _rng  = np.random.default_rng(args.seed)
+    _perm = _rng.permutation(len(_all_demos)).tolist()
+    _all_demos = [_all_demos[i] for i in _perm]
+    _n_val = max(1, int(len(_all_demos) * args.val_split))
+    val_demo_set   = set(_all_demos[-_n_val:])
+    train_demo_set = set(_all_demos[:-_n_val])
+
+    print(f"[Train] Demo split: {len(train_demo_set)} train demos | {_n_val} val demos "
+          f"({len(_all_demos)} valid total)")
+
+    train_ds = TactileInsertionDataset(
         data_paths=data_files,
         seq_len=args.seq_len,
         augment=True,
         cache_to_ram=args.cache_to_ram,
+        allowed_demos=train_demo_set,
     )
-
-    val_size   = max(1, int(len(full_ds) * args.val_split))
-    train_size = len(full_ds) - val_size
-    train_ds, val_ds = random_split(
-        full_ds,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(args.seed),
+    val_ds = TactileInsertionDataset(
+        data_paths=data_files,
+        seq_len=args.seq_len,
+        augment=False,
+        cache_to_ram=args.cache_to_ram,
+        allowed_demos=val_demo_set,
     )
-
-    # Disable augmentation for validation subset
-    # (val_ds wraps the same dataset object; use a simple flag approach)
-    class _NoAugSubset(Subset):
-        def __getitem__(self, idx):
-            old = self.dataset.augment
-            self.dataset.augment = False
-            item = super().__getitem__(idx)
-            self.dataset.augment = old
-            return item
-        def __getitems__(self, indices):
-            return [self.__getitem__(idx) for idx in indices]
-
-    val_ds = _NoAugSubset(full_ds, val_ds.indices)
 
     train_loader = DataLoader(
         train_ds, batch_size=args.batch_size, shuffle=True,
@@ -206,7 +219,7 @@ def main() -> None:
         num_workers=args.num_workers, pin_memory=True,
     )
 
-    print(f"[Train] {train_size:,} train windows | {val_size:,} val windows")
+    print(f"[Train] {len(train_ds):,} train windows | {len(val_ds):,} val windows")
 
     # ── Model ────────────────────────────────────────────────────────── #
     policy = BCRNNPolicy(
@@ -219,6 +232,14 @@ def main() -> None:
         f"[Model] {policy.num_parameters():,} total params | "
         f"{policy.num_trainable_parameters():,} trainable"
     )
+
+    # ── Gradient clipping groups (computed once) ─────────────────────── #
+    # action_head is clipped separately: when it generates large gradients the
+    # shared-clip approach starves upstream encoders (budget = 1/total_norm,
+    # dominated by the head).
+    _clip_head_params  = list(policy.action_head.parameters())
+    _clip_head_ids     = {id(p) for p in _clip_head_params}
+    _clip_other_params = [p for p in policy.parameters() if id(p) not in _clip_head_ids]
 
     # ── Optimizer  ───────────────────────────────────────────────────── #
     # Visual backbone parameters are in a separate group so we can adjust
@@ -323,11 +344,20 @@ def main() -> None:
             enc_norms = encoder_grad_norms(policy)
             for k, v in enc_norms.items():
                 encoder_norms_accum.setdefault(k, []).append(v)
-                
-            grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), args.clip_grad)
-            
-            if not torch.isfinite(grad_norm):
-                print(f"\n[WARNING] Non-finite grad_norm at epoch {epoch}, step {step}: {grad_norm.item()}")
+
+            # Separate clips: action head vs everything else.
+            # Prevents the head from monopolising the shared gradient budget
+            # and starving upstream encoders.
+            head_norm = torch.nn.utils.clip_grad_norm_(_clip_head_params,  args.clip_grad)
+            enc_norm  = torch.nn.utils.clip_grad_norm_(_clip_other_params, 5.0)
+            grad_norm = head_norm  # primary metric for logging
+
+            if not (torch.isfinite(head_norm) and torch.isfinite(enc_norm)):
+                # Float16 overflow during backward — expected occasionally under AMP.
+                # GradScaler.step() below will detect the non-finite grad and skip
+                # optimizer.step(), then halve the scale factor in update().
+                print(f"\n[INFO] AMP overflow at epoch {epoch}, step {step} "
+                      f"(head={head_norm:.3f} enc={enc_norm:.3f}) — step skipped by GradScaler")
             
             scaler.step(optimizer)
             scaler.update()
@@ -340,10 +370,11 @@ def main() -> None:
             # ── Intra-epoch batch logging (every 50 steps) ──────── #
             if use_wandb and (step + 1) % 50 == 0:
                 wandb.log({
-                    "batch/loss":      loss.item(),
-                    "batch/bc_loss":   info["bc_loss"],
-                    "batch/aux_loss":  info["aux_loss"],
-                    "batch/grad_norm": grad_norm.item(),
+                    "batch/loss":           loss.item(),
+                    "batch/bc_loss":        info["bc_loss"],
+                    "batch/aux_loss":       info["aux_loss"],
+                    "batch/grad_norm_head": head_norm.item(),
+                    "batch/grad_norm_enc":  enc_norm.item(),
                 }, step=global_step + step)
 
         scheduler.step()

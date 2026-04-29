@@ -111,18 +111,20 @@ class TactileInsertionDataset(Dataset):
 
     def __init__(
         self,
-        data_paths:   list[str],
-        seq_len:      int   = 20,
-        gamma:        float = 0.99,
-        floor:        float = 0.1,
-        augment:      bool  = True,
-        cache_to_ram: bool  = True,
+        data_paths:    list[str],
+        seq_len:       int   = 20,
+        gamma:         float = 0.99,
+        floor:         float = 0.1,
+        augment:       bool  = True,
+        cache_to_ram:  bool  = True,
+        allowed_demos: set[tuple[str, str]] | None = None,
     ):
-        self.seq_len = seq_len
-        self.gamma   = gamma
-        self.floor   = floor
-        self.augment = augment
-        self.cache_to_ram = cache_to_ram
+        self.seq_len       = seq_len
+        self.gamma         = gamma
+        self.floor         = floor
+        self.augment       = augment
+        self.cache_to_ram  = cache_to_ram
+        self.allowed_demos = allowed_demos
 
         # List of (file_path, demo_key, start_step_index) tuples
         self._windows: list[tuple[str, str, int]] = []
@@ -159,6 +161,8 @@ class TactileInsertionDataset(Dataset):
         with h5py.File(path, "r") as f:
             data = f["data"]
             for dk in data.keys():
+                if self.allowed_demos is not None and (path, dk) not in self.allowed_demos:
+                    continue
                 demo = data[dk]
                 self._data_cache[path][dk] = {
                     "obs": {k: demo["obs"][k][:] for k in demo["obs"].keys()},
@@ -174,12 +178,13 @@ class TactileInsertionDataset(Dataset):
                 return
             data = f["data"]
             for dk in data.keys():
+                if self.allowed_demos is not None and (path, dk) not in self.allowed_demos:
+                    continue
                 if "rewards" not in data[dk]:
                     continue
                 rewards  = data[dk]["rewards"][:]
                 T_demo   = len(rewards)
-                # Skip failed demos and demos shorter than the context window
-                if rewards.max() <= 0 or T_demo < self.seq_len:
+                if rewards.max() < 0.5 or T_demo < max(100, self.seq_len):
                     continue
                 for start in range(T_demo - self.seq_len + 1):
                     self._windows.append((path, dk, start))
@@ -247,9 +252,8 @@ class TactileInsertionDataset(Dataset):
         rtg_all = compute_rtg(rewards, gamma=self.gamma, floor=self.floor)
         rtg_seq = rtg_all[start:end]                                # (T,)
 
-        # ── Visual augmentation (MOVING TO GPU FOR SPEED) ───────────── #
-        # if self.augment:
-        #     obs = self._augment_visual(obs)
+        if self.augment:
+            obs = self._augment_visual(obs)
 
         # ── Build item dict ───────────────────────────────────────────── #
         item = {
@@ -303,6 +307,6 @@ class TactileInsertionDataset(Dataset):
             img_t = TF.adjust_saturation(img_t, saturation)
             img_t = TF.adjust_hue(img_t, hue)
             
-            obs[key] = img_t.permute(0, 2, 3, 1).numpy()         # back to (T, H, W, 3) np.uint8
+            obs[key] = img_t.clamp(0, 255).to(torch.uint8).permute(0, 2, 3, 1).numpy()
 
         return obs

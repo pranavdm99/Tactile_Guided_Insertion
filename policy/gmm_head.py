@@ -34,7 +34,7 @@ class GMMHead(nn.Module):
         input_dim: int,
         action_dim: int = 6,
         num_modes:  int = 3,
-        min_std:   float = 0.05,
+        min_std:   float = 0.1,
     ):
         super().__init__()
         self.action_dim = action_dim
@@ -77,20 +77,23 @@ class GMMHead(nn.Module):
             weights:       (*, K)              — normalised mixture weights
             gripper_logit: (*, 1)
         """
+        h     = h.float()                                          # prevent AMP float16 overflow in 1/std² gradients
         shape = h.shape[:-1]                                       # (*,)
         feat  = self.trunk(h)                                      # (*, 256)
 
         means   = self.mean_head(feat).reshape(*shape, self.num_modes, self.action_dim)
         log_std = self.log_std_head(feat).reshape(*shape, self.num_modes, self.action_dim)
-        
-        # Clamp log_std to prevent exponential overflow in mixed precision
+
         log_std = torch.clamp(log_std, min=-5.0, max=2.0)
         stds    = log_std.exp().clamp(min=self.min_std)
 
-        weights       = F.softmax(self.log_weight_head(feat), dim=-1)  # (*, K)
-        gripper_logit = self.gripper_head(feat)                        # (*, 1)
+        # log_softmax is numerically stable; log(softmax(...).clamp(1e-8)) is not —
+        # gradient becomes 1/1e-8 = 1e8 for near-zero weights, causing inf.
+        log_weights   = F.log_softmax(self.log_weight_head(feat), dim=-1)  # (*, K)
+        weights       = log_weights.exp()                                  # (*, K)
+        gripper_logit = self.gripper_head(feat)                            # (*, 1)
 
-        return means, stds, weights, gripper_logit
+        return means, stds, weights, log_weights, gripper_logit
 
     # ─────────────────────────────────────────────────── #
     #  Training: reward-weighted NLL                      #
@@ -118,7 +121,7 @@ class GMMHead(nn.Module):
         pose_gt    = actions[..., :self.action_dim]   # (B, T, 6)
         gripper_gt = actions[..., self.action_dim:]   # (B, T, 1)  values ∈ {-1, +1}
 
-        means, stds, weights, gripper_logit = self._forward(h)
+        means, stds, weights, log_weights, gripper_logit = self._forward(h)
 
         # ── Pose: GMM log-probability ──────────────────────────────────── #
         # Normal log-prob over each component: (B, T, K, action_dim)
@@ -126,8 +129,7 @@ class GMMHead(nn.Module):
             pose_gt.unsqueeze(-2)
         )
         log_p = log_p.sum(-1)                          # sum over action dims: (B, T, K)
-        # Weight by mixture coefficients, then marginalise via logsumexp:
-        log_p = log_p + torch.log(weights.clamp(min=1e-8))
+        log_p = log_p + log_weights                    # numerically stable: log_softmax
         log_prob_gmm = torch.logsumexp(log_p, dim=-1)  # (B, T)
 
         # ── Gripper: binary cross-entropy ──────────────────────────────── #
@@ -161,7 +163,7 @@ class GMMHead(nn.Module):
         Returns:
             (B, 7) actions — pose (6) + gripper ∈ {-1.0, +1.0}.
         """
-        means, _, weights, gripper_logit = self._forward(h)
+        means, _, weights, _lw, gripper_logit = self._forward(h)
 
         # Index of the highest-weight component: (B,)
         best = weights.argmax(dim=-1)
@@ -194,7 +196,7 @@ class GMMHead(nn.Module):
         Returns:
             dict with scalar diagnostic values.
         """
-        means, stds, weights, gripper_logit = self._forward(h)
+        means, stds, weights, _lw, gripper_logit = self._forward(h)
 
         pose_gt    = actions[..., :self.action_dim]  # (B, T, 6)
         gripper_gt = actions[..., self.action_dim:]  # (B, T, 1)

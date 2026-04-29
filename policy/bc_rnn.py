@@ -205,11 +205,14 @@ class BCRNNPolicy(nn.Module):
         """
         fused, obs_pred = self._encode(obs)                 # (B, T, 704)
 
-        # Run LSTM over the full context window
-        lstm_out, _ = self.lstm(fused)                      # (B, T, 1024)
-
-        # ── BC GMM loss ───────────────────────────────────────────────── #
-        bc_loss = self.action_head.nll_loss(lstm_out, actions, rtg_weights)
+        # Run LSTM + loss in float32: 1/σ² gradients from the GMM head can be
+        # large enough to overflow float16 in lstm_out's gradient buffer, which
+        # propagates inf back through LSTM weights and all upstream encoders.
+        with torch.autocast("cuda", enabled=False):
+            lstm_out, _ = self.lstm(fused.float())          # (B, T, 1024) f32
+            bc_loss = self.action_head.nll_loss(
+                lstm_out, actions.float(), rtg_weights
+            )
 
         # ── Auxiliary observer loss ───────────────────────────────────── #
         aux_loss = torch.tensor(0.0, device=bc_loss.device)
