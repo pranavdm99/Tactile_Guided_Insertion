@@ -252,8 +252,9 @@ class TactileInsertionDataset(Dataset):
         rtg_all = compute_rtg(rewards, gamma=self.gamma, floor=self.floor)
         rtg_seq = rtg_all[start:end]                                # (T,)
 
-        if self.augment:
-            obs = self._augment_visual(obs)
+        # ── Visual augmentation (MOVING TO GPU FOR SPEED) ───────────── #
+        # if self.augment:
+        #     obs = self._augment_visual(obs)
 
         # ── Build item dict ───────────────────────────────────────────── #
         item = {

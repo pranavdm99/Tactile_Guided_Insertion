@@ -20,7 +20,7 @@ while true; do
     # Force 1 thread to avoid hitting login node process limits
     export OMP_NUM_THREADS=1
     export OPENBLAS_NUM_THREADS=1
-    apptainer exec --bind $PWD:/app --pwd /app $SIF_IMAGE wandb sync wandb/offline-run-*
+    apptainer exec --bind $PWD:/app --pwd /app $SIF_IMAGE wandb sync wandb/offline-run-* --clean --yes
   else
     echo "$(date): No offline runs found to sync."
   fi
