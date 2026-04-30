@@ -132,6 +132,14 @@ class GMMHead(nn.Module):
         log_p = log_p + log_weights                    # numerically stable: log_softmax
         log_prob_gmm = torch.logsumexp(log_p, dim=-1)  # (B, T)
 
+        # Clamp per-step log-prob to a reasonable range. Without this, a single
+        # step where the predicted distribution assigns near-zero probability to
+        # the GT action (log_prob → -∞) can dominate an entire validation epoch
+        # and cause the loss curve to spike wildly despite healthy overall learning.
+        # The floor of -20 ≈ probability of 2e-9, generous enough to not mask
+        # real failures but tight enough to prevent runaway spikes.
+        log_prob_gmm = log_prob_gmm.clamp(min=-20.0)
+
         # ── Gripper: binary cross-entropy ──────────────────────────────── #
         # Map {-1, +1} → {0, 1}
         gripper_target = (gripper_gt + 1.0) / 2.0

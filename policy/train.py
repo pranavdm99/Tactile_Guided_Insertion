@@ -118,6 +118,7 @@ class TactileInsertionDataset(Dataset):
         augment:       bool  = True,
         cache_to_ram:  bool  = True,
         allowed_demos: set[tuple[str, str]] | None = None,
+        action_stats:  tuple[np.ndarray, np.ndarray] | None = None,
     ):
         self.seq_len       = seq_len
         self.gamma         = gamma
@@ -151,10 +152,42 @@ class TactileInsertionDataset(Dataset):
                 "your demos were recorded after enabling reward_shaping=True."
             )
 
+        # Use provided stats (val split must use training stats, not its own)
+        # or compute from this split's demos if not provided (training split).
+        if action_stats is not None:
+            self.action_mean, self.action_std = action_stats
+        else:
+            self._compute_action_stats()
+
         print(
             f"[Dataset] {len(self._windows):,} windows "
             f"| seq_len={seq_len} | augment={augment} | cache_to_ram={cache_to_ram}"
         )
+        print(
+            f"[Dataset] Action norm (pose): "
+            f"mean={np.round(self.action_mean, 4)}  std={np.round(self.action_std, 4)}"
+        )
+
+    def _compute_action_stats(self) -> None:
+        seen: set[tuple[str, str]] = set()
+        all_actions: list[np.ndarray] = []
+        for path, dk, _ in self._windows:
+            if (path, dk) in seen:
+                continue
+            seen.add((path, dk))
+            if self.cache_to_ram and path in self._data_cache and dk in self._data_cache[path]:
+                all_actions.append(self._data_cache[path][dk]["actions"])
+            else:
+                with h5py.File(path, "r") as f:
+                    all_actions.append(f[f"data/{dk}/actions"][:])
+
+        a = np.concatenate(all_actions, axis=0)[:, :6].astype(np.float32)  # pose only
+        mean = a.mean(0)
+        std  = a.std(0)
+        # Protect against zero-variance dims (droll, dpitch always=0 here)
+        std  = np.where(std < 1e-6, 1.0, std).astype(np.float32)
+        self.action_mean = mean.astype(np.float32)   # (6,) pose dims only
+        self.action_std  = std.astype(np.float32)    # (6,)
 
     def _load_file_to_ram(self, path: str) -> None:
         self._data_cache[path] = {}
@@ -252,9 +285,13 @@ class TactileInsertionDataset(Dataset):
         rtg_all = compute_rtg(rewards, gamma=self.gamma, floor=self.floor)
         rtg_seq = rtg_all[start:end]                                # (T,)
 
+        # Normalise pose dims; gripper stays as-is (binary BCE, no normalisation needed)
+        pose_norm = (actions[:, :6] - self.action_mean) / self.action_std
+        actions   = np.concatenate([pose_norm, actions[:, 6:7]], axis=-1)  # (T, 7)
+
         # ── Visual augmentation (MOVING TO GPU FOR SPEED) ───────────── #
-        # if self.augment:
-        #     obs = self._augment_visual(obs)
+        # GPU ColorJitter is applied inside VisualEncoder._normalise() during
+        # training (self.training gate). CPU augmentation here is redundant.
 
         # ── Build item dict ───────────────────────────────────────────── #
         item = {

@@ -235,6 +235,22 @@ class BCRNNPolicy(nn.Module):
         """Reset LSTM hidden state. Call at the start of each rollout episode."""
         self._hidden = None
 
+    def set_action_norm(self, mean: "np.ndarray", std: "np.ndarray") -> None:
+        """
+        Store per-dim action normalisation stats so act() can denormalise output.
+        The training dataset normalises pose actions to zero-mean/unit-std before
+        computing the NLL loss; act() must invert that transform before returning
+        actions to the environment.
+
+        Args:
+            mean: (6,) float32 — per-dim mean of pose actions in training data.
+            std:  (6,) float32 — per-dim std  (zero-variance dims pre-set to 1.0).
+        """
+        import numpy as _np
+        device = next(self.parameters()).device
+        self._action_mean = torch.from_numpy(_np.asarray(mean[:6], dtype=_np.float32)).to(device)
+        self._action_std  = torch.from_numpy(_np.asarray(std[:6],  dtype=_np.float32)).to(device)
+
     @torch.no_grad()
     def act(self, obs_single: dict[str, torch.Tensor]) -> "np.ndarray":
         """
@@ -246,7 +262,7 @@ class BCRNNPolicy(nn.Module):
                               tactile_right, eef_pos, eef_quat, gripper_qpos.
 
         Returns:
-            (7,) numpy float32 action array.
+            (7,) numpy float32 action array in raw (unnormalised) action space.
         """
         # Add fake T=1 dimension to match encoder expectations
         obs_seq = {k: v.unsqueeze(1) for k, v in obs_single.items()}
@@ -255,7 +271,12 @@ class BCRNNPolicy(nn.Module):
         lstm_out, self._hidden = self.lstm(fused, self._hidden)  # (1, 1, 1024)
 
         h_t    = lstm_out[:, 0, :]                          # (1, 1024)
-        action = self.action_head.act(h_t)                  # (1, 7)
+        action = self.action_head.act(h_t)                  # (1, 7) — pose in normalised space
+
+        # Denormalise pose dims if normalization stats have been set
+        if hasattr(self, "_action_mean"):
+            pose = action[:, :6] * self._action_std + self._action_mean
+            action = torch.cat([pose, action[:, 6:]], dim=-1)
 
         return action.squeeze(0).cpu().numpy()
 

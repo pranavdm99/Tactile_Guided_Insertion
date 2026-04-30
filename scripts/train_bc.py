@@ -67,8 +67,8 @@ def parse_args() -> argparse.Namespace:
     # Sequence / data loading
     p.add_argument("--seq-len",     type=int,   default=20,
                    help="LSTM context window length (steps).")
-    p.add_argument("--val-split",   type=float, default=0.1,
-                   help="Fraction of windows held out for validation.")
+    p.add_argument("--val-split",   type=float, default=0.2,
+                   help="Fraction of demos held out for validation.")
     p.add_argument("--num-workers", type=int,   default=4,
                    help="DataLoader worker processes.")
     p.add_argument("--cache-to-ram", action="store_true",
@@ -202,12 +202,16 @@ def main() -> None:
         cache_to_ram=args.cache_to_ram,
         allowed_demos=train_demo_set,
     )
+    # Val dataset must use training-split normalization stats — not its own.
+    # Using val-derived stats would normalize actions differently, making val
+    # loss measure a subtly different quantity than training loss.
     val_ds = TactileInsertionDataset(
         data_paths=data_files,
         seq_len=args.seq_len,
         augment=False,
         cache_to_ram=args.cache_to_ram,
         allowed_demos=val_demo_set,
+        action_stats=(train_ds.action_mean, train_ds.action_std),
     )
 
     train_loader = DataLoader(
@@ -221,6 +225,10 @@ def main() -> None:
 
     print(f"[Train] {len(train_ds):,} train windows | {len(val_ds):,} val windows")
 
+    # Normalization stats come from the training split only (no val data leakage)
+    action_mean = train_ds.action_mean   # (6,) numpy float32
+    action_std  = train_ds.action_std    # (6,)
+
     # ── Model ────────────────────────────────────────────────────────── #
     policy = BCRNNPolicy(
         num_gmm_modes=args.gmm_modes,
@@ -232,6 +240,7 @@ def main() -> None:
         f"[Model] {policy.num_parameters():,} total params | "
         f"{policy.num_trainable_parameters():,} trainable"
     )
+    policy.set_action_norm(action_mean, action_std)
 
     # ── Gradient clipping groups (computed once) ─────────────────────── #
     # action_head is clipped separately: when it generates large gradients the
@@ -270,6 +279,7 @@ def main() -> None:
         start_epoch   = ckpt.get("epoch", 0) + 1
         best_val_loss = ckpt.get("val_loss", float("inf"))
         print(f"[Resume] Epoch {start_epoch}, best val loss = {best_val_loss:.4f}")
+        # Stats from training data take precedence over any saved in the checkpoint
 
     # ── Output directory ─────────────────────────────────────────────── #
     os.makedirs(args.output, exist_ok=True)
@@ -461,11 +471,13 @@ def main() -> None:
 
         # ── Checkpointing ─────────────────────────────────────────── #
         ckpt = {
-            "epoch":      epoch,
-            "state_dict": policy.state_dict(),
-            "val_loss":   float(val_loss),
-            "train_loss": float(train_loss),
-            "args":       vars(args),
+            "epoch":       epoch,
+            "state_dict":  policy.state_dict(),
+            "val_loss":    float(val_loss),
+            "train_loss":  float(train_loss),
+            "args":        vars(args),
+            "action_mean": action_mean.tolist(),
+            "action_std":  action_std.tolist(),
         }
 
         torch.save(ckpt, os.path.join(args.output, "latest_policy.pth"))
