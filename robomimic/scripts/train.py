@@ -110,6 +110,11 @@ def train(config, device):
     data_logger = DataLogger(
         log_dir,
         log_tb=config.experiment.logging.log_tb,
+        log_wandb=config.experiment.logging.log_wandb,
+        wandb_kwargs=dict(
+            project="tactile-bc",
+            name=config.experiment.name,
+        ),
     )
     model = algo_factory(
         algo_name=config.algo_name,

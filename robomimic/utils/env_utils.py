@@ -176,7 +176,8 @@ def create_env_from_metadata(
     if env_name is None:
         env_name = env_meta["env_name"]
     env_type = get_env_type(env_meta=env_meta)
-    env_kwargs = env_meta["env_kwargs"]
+    env_kwargs = dict(env_meta["env_kwargs"])
+    env_kwargs.pop("env_name", None)
 
     env = create_env(
         env_type=env_type,

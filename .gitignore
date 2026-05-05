@@ -119,3 +119,10 @@ venv.bak/
 .mypy_cache/
 *.mp4
 *.pth
+
+# HPC run outputs and local checkpoints
+runs/
+trained_models/
+
+# MuJoCo logs
+MUJOCO_LOG.TXT

@@ -52,6 +52,14 @@ Example usage:
         --dataset_path /path/to/output.hdf5
 """
 import argparse
+import sys
+import os
+sys.path.insert(0, "/media/tirth/Expansion/docker_data_mount/projects/enpm690/Tactile_Guided_Insertion")
+try:
+    import env_setup  # registers FOTSPandaGripper
+except ImportError:
+    pass
+
 import json
 import h5py
 import imageio

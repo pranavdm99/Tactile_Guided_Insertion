@@ -82,8 +82,9 @@ class BaseConfig(Config):
 
         self.experiment.name = "test"                               # name of experiment used to make log files
         self.experiment.validate = True                             # whether to do validation or not
-        self.experiment.logging.terminal_output_to_txt = True       # whether to log stdout to txt file 
+        self.experiment.logging.terminal_output_to_txt = True       # whether to log stdout to txt file
         self.experiment.logging.log_tb = True                       # enable tensorboard logging
+        self.experiment.logging.log_wandb = False                   # enable wandb logging
 
 
         ## save config - if and when to save model checkpoints ##

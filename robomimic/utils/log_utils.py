@@ -35,18 +35,29 @@ class DataLogger(object):
     """
     Logging class to log metrics to tensorboard and/or retrieve running statistics about logged data.
     """
-    def __init__(self, log_dir, log_tb=True):
+    def __init__(self, log_dir, log_tb=True, log_wandb=False, wandb_kwargs=None):
         """
         Args:
             log_dir (str): base path to store logs
             log_tb (bool): whether to use tensorboard logging
+            log_wandb (bool): whether to use wandb logging
+            wandb_kwargs (dict): kwargs forwarded to wandb.init()
         """
         self._tb_logger = None
+        self._wandb = None
         self._data = dict() # store all the scalar data logged so far
 
         if log_tb:
             from tensorboardX import SummaryWriter
             self._tb_logger = SummaryWriter(os.path.join(log_dir, 'tb'))
+
+        if log_wandb:
+            try:
+                import wandb
+                wandb.init(**(wandb_kwargs or {}))
+                self._wandb = wandb
+            except ImportError:
+                print("[W&B] wandb not installed — run: pip install wandb")
 
     def record(self, k, v, epoch, data_type='scalar', log_stats=False):
         """
@@ -81,6 +92,10 @@ class DataLogger(object):
             elif data_type == 'image':
                 self._tb_logger.add_images(k, img_tensor=v, global_step=epoch, dataformats="NHWC")
 
+        # maybe log to wandb
+        if self._wandb is not None and data_type == 'scalar':
+            self._wandb.log({k: v}, step=epoch)
+
     def get_stats(self, k):
         """
         Computes running statistics for a particular key.
@@ -103,6 +118,8 @@ class DataLogger(object):
         """
         if self._tb_logger is not None:
             self._tb_logger.close()
+        if self._wandb is not None:
+            self._wandb.finish()
 
 
 class custom_tqdm(tqdm):

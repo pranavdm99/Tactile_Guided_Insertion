@@ -9,7 +9,11 @@ from copy import deepcopy
 
 import mujoco_py
 import robosuite
-from robosuite.utils.mjcf_utils import postprocess_model_xml
+try:
+    from robosuite.utils.mjcf_utils import postprocess_model_xml
+except ImportError:
+    def postprocess_model_xml(xml):
+        return xml
 
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.envs.env_base as EB
@@ -49,7 +53,7 @@ class EnvRobosuite(EB.EnvBase):
         # robosuite version check
         self._is_v1 = (robosuite.__version__.split(".")[0] == "1")
         if self._is_v1:
-            assert (robosuite.__version__.split(".")[1] == "2"), "only support robosuite v0.3 and v1.2+"
+            assert (int(robosuite.__version__.split(".")[1]) >= 2), "only support robosuite v0.3 and v1.2+"
 
         kwargs = deepcopy(kwargs)
 
@@ -197,6 +201,12 @@ class EnvRobosuite(EB.EnvBase):
                 for k in di:
                     if k.startswith(pf) and (k not in ret) and (not k.endswith("proprio-state")):
                         ret[k] = np.array(di[k])
+            # remap nut-specific keys to standardized "object_*" names
+            for nut_prefix in ("RoundNut", "SquareNut"):
+                for k in list(di.keys()):
+                    if k.startswith(nut_prefix):
+                        standard_k = k.replace(nut_prefix, "object")
+                        ret[standard_k] = np.array(di[k])
         else:
             # minimal proprioception for older versions of robosuite
             ret["proprio"] = np.array(di["robot-state"])
