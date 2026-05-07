@@ -177,10 +177,12 @@ class BC(PolicyAlgo):
 
         # gradient step
         info = OrderedDict()
+        max_grad_norm = self.optim_params["policy"].get("max_grad_norm", None)
         policy_grad_norms = TorchUtils.backprop_for_loss(
             net=self.nets["policy"],
             optim=self.optimizers["policy"],
             loss=losses["action_loss"],
+            max_grad_norm=max_grad_norm,
         )
         info["policy_grad_norms"] = policy_grad_norms
         return info

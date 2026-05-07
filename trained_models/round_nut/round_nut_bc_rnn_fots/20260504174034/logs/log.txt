@@ -1,0 +1,181 @@
+
+============= Initialized Observation Utils with Obs Spec =============
+
+using obs type: low_dim with modalities: ['robot0_gripper_qpos', 'robot0_eef_quat', 'object_to_robot0_eef_quat', 'tactile_right_lowdim', 'object_quat', 'tactile_left_lowdim', 'robot0_eef_pos', 'object_pos', 'object_to_robot0_eef_pos']
+using obs type: image with modalities: []
+
+============= Loaded Environment Metadata =============
+obs modality object_pos with shape (3,)
+obs modality object_quat with shape (4,)
+obs modality object_to_robot0_eef_pos with shape (3,)
+obs modality object_to_robot0_eef_quat with shape (4,)
+obs modality robot0_eef_pos with shape (3,)
+obs modality robot0_eef_quat with shape (4,)
+obs modality robot0_gripper_qpos with shape (2,)
+obs modality tactile_left_lowdim with shape (64,)
+obs modality tactile_right_lowdim with shape (64,)
+
+
+============= Model Summary =============
+BC_RNN_GMM (
+  ModuleDict(
+    (policy): RNNGMMActorNetwork(
+        action_dim=7, std_activation=softplus, low_noise_eval=True, num_nodes=5, min_std=0.0001
+  
+        encoder=ObservationGroupEncoder(
+            group=obs
+            ObservationEncoder(
+                Modality(
+                    name=object_pos
+                    shape=(3,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=object_quat
+                    shape=(4,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=object_to_robot0_eef_pos
+                    shape=(3,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=object_to_robot0_eef_quat
+                    shape=(4,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=robot0_eef_pos
+                    shape=(3,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=robot0_eef_quat
+                    shape=(4,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=robot0_gripper_qpos
+                    shape=(2,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=tactile_left_lowdim
+                    shape=(64,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                Modality(
+                    name=tactile_right_lowdim
+                    shape=(64,)
+                    randomizer=None
+                    net=None
+                    sharing_from=None
+                )
+                output_shape=[151]
+            )
+        )
+  
+        rnn=RNN_Base(
+          (per_step_net): ObservationDecoder(
+              Modality(
+                  name=mean
+                  shape=(5, 7)
+                  net=(Linear(in_features=1000, out_features=35, bias=True))
+              )
+              Modality(
+                  name=scale
+                  shape=(5, 7)
+                  net=(Linear(in_features=1000, out_features=35, bias=True))
+              )
+              Modality(
+                  name=logits
+                  shape=(5,)
+                  net=(Linear(in_features=1000, out_features=5, bias=True))
+              )
+          )
+          (nets): LSTM(151, 1000, num_layers=2, batch_first=True)
+        )
+    )
+  )
+)
+
+SequenceDataset: loading dataset into memory...
+  0%|          | 0/172 [00:00<?, ?it/s] 30%|##9       | 51/172 [00:00<00:00, 509.12it/s] 59%|#####9    | 102/172 [00:00<00:00, 406.79it/s] 84%|########3 | 144/172 [00:00<00:00, 384.26it/s]100%|##########| 172/172 [00:00<00:00, 390.66it/s]
+
+============= Training Dataset =============
+SequenceDataset (
+	path=/media/tirth/Expansion/docker_data_mount/projects/enpm690/Tactile_Guided_Insertion/datasets/merged_lowdim.hdf5
+	obs_keys=('object_pos', 'object_quat', 'object_to_robot0_eef_pos', 'object_to_robot0_eef_quat', 'robot0_eef_pos', 'robot0_eef_quat', 'robot0_gripper_qpos', 'tactile_left_lowdim', 'tactile_right_lowdim')
+	seq_length=10
+	filter_key=none
+	frame_stack=1
+	pad_seq_length=True
+	pad_frame_stack=True
+	goal_mode=none
+	cache_mode=low_dim
+	num_demos=172
+	num_sequences=72387
+)
+
+  0%|          | 0/500 [00:00<?, ?it/s]  0%|          | 1/500 [00:00<02:21,  3.54it/s]  1%|1         | 5/500 [00:00<00:31, 15.70it/s]  2%|1         | 9/500 [00:00<00:22, 21.86it/s]  3%|2         | 13/500 [00:00<00:17, 27.20it/s]  3%|3         | 17/500 [00:00<00:15, 30.55it/s]  4%|4         | 21/500 [00:00<00:15, 30.33it/s]  5%|5         | 25/500 [00:00<00:14, 32.84it/s]  6%|5         | 29/500 [00:01<00:14, 32.94it/s]  7%|6         | 34/500 [00:01<00:13, 35.66it/s]  8%|7         | 39/500 [00:01<00:11, 38.60it/s]  9%|8         | 44/500 [00:01<00:11, 38.52it/s] 10%|9         | 48/500 [00:01<00:11, 38.36it/s] 10%|#         | 52/500 [00:01<00:12, 36.93it/s] 11%|#1        | 56/500 [00:01<00:12, 36.47it/s] 12%|#2        | 61/500 [00:01<00:11, 38.34it/s] 13%|#3        | 65/500 [00:01<00:11, 38.59it/s] 14%|#3        | 69/500 [00:02<00:12, 35.80it/s] 15%|#4        | 74/500 [00:02<00:11, 38.01it/s] 16%|#5        | 78/500 [00:02<00:12, 34.89it/s] 16%|#6        | 82/500 [00:02<00:11, 36.18it/s] 17%|#7        | 86/500 [00:02<00:11, 36.80it/s] 18%|#8        | 91/500 [00:02<00:10, 39.87it/s] 19%|#9        | 96/500 [00:02<00:10, 37.83it/s] 20%|##        | 100/500 [00:02<00:10, 37.46it/s] 21%|##        | 104/500 [00:03<00:11, 35.68it/s] 22%|##1       | 108/500 [00:03<00:10, 36.49it/s] 22%|##2       | 112/500 [00:03<00:10, 35.56it/s] 23%|##3       | 117/500 [00:03<00:10, 36.86it/s] 24%|##4       | 121/500 [00:03<00:10, 34.73it/s] 25%|##5       | 126/500 [00:03<00:10, 36.55it/s] 26%|##6       | 130/500 [00:03<00:10, 36.91it/s] 27%|##6       | 134/500 [00:03<00:09, 36.88it/s] 28%|##7       | 138/500 [00:04<00:10, 35.10it/s] 28%|##8       | 142/500 [00:04<00:10, 35.32it/s] 29%|##9       | 147/500 [00:04<00:09, 36.17it/s] 30%|###       | 152/500 [00:04<00:09, 37.60it/s] 31%|###1      | 156/500 [00:04<00:09, 35.33it/s] 32%|###2      | 162/500 [00:04<00:08, 39.97it/s] 33%|###3      | 167/500 [00:04<00:08, 39.10it/s] 34%|###4      | 171/500 [00:04<00:08, 38.62it/s] 35%|###5      | 175/500 [00:04<00:08, 37.52it/s] 36%|###5      | 179/500 [00:05<00:09, 35.59it/s] 37%|###6      | 183/500 [00:05<00:08, 35.78it/s] 37%|###7      | 187/500 [00:05<00:09, 33.58it/s] 38%|###8      | 191/500 [00:05<00:09, 34.20it/s] 39%|###9      | 195/500 [00:05<00:08, 34.30it/s] 40%|###9      | 199/500 [00:05<00:09, 33.15it/s] 41%|####      | 203/500 [00:05<00:09, 32.05it/s] 41%|####1     | 207/500 [00:05<00:09, 31.49it/s] 42%|####2     | 211/500 [00:06<00:08, 32.89it/s] 43%|####3     | 215/500 [00:06<00:08, 33.22it/s] 44%|####3     | 219/500 [00:06<00:08, 33.73it/s] 45%|####4     | 224/500 [00:06<00:07, 35.41it/s] 46%|####5     | 228/500 [00:06<00:07, 36.30it/s] 47%|####6     | 233/500 [00:06<00:06, 39.37it/s] 47%|####7     | 237/500 [00:06<00:06, 38.01it/s] 48%|####8     | 242/500 [00:06<00:06, 39.26it/s] 49%|####9     | 246/500 [00:07<00:06, 36.50it/s] 50%|#####     | 250/500 [00:07<00:07, 33.81it/s] 51%|#####1    | 255/500 [00:07<00:06, 37.07it/s] 52%|#####2    | 260/500 [00:07<00:06, 39.23it/s] 53%|#####2    | 264/500 [00:07<00:06, 38.15it/s] 54%|#####3    | 268/500 [00:07<00:06, 37.35it/s] 54%|#####4    | 272/500 [00:07<00:06, 37.22it/s] 55%|#####5    | 276/500 [00:07<00:06, 35.54it/s] 56%|#####6    | 280/500 [00:07<00:06, 33.19it/s] 57%|#####6    | 285/500 [00:08<00:06, 34.96it/s] 58%|#####7    | 289/500 [00:08<00:06, 34.94it/s] 59%|#####8    | 293/500 [00:08<00:06, 34.14it/s] 59%|#####9    | 297/500 [00:08<00:05, 35.16it/s] 60%|######    | 301/500 [00:08<00:05, 35.15it/s] 61%|######1   | 305/500 [00:08<00:05, 34.72it/s] 62%|######1   | 309/500 [00:08<00:05, 33.87it/s] 63%|######2   | 314/500 [00:08<00:05, 36.72it/s] 64%|######3   | 318/500 [00:09<00:04, 37.23it/s] 64%|######4   | 322/500 [00:09<00:04, 36.44it/s] 65%|######5   | 326/500 [00:09<00:04, 37.05it/s] 66%|######6   | 330/500 [00:09<00:04, 36.94it/s] 67%|######6   | 334/500 [00:09<00:04, 36.80it/s] 68%|######7   | 338/500 [00:09<00:04, 37.26it/s] 69%|######8   | 344/500 [00:09<00:03, 41.54it/s] 70%|#######   | 350/500 [00:09<00:03, 44.53it/s] 71%|#######1  | 355/500 [00:09<00:03, 45.78it/s] 72%|#######2  | 360/500 [00:10<00:03, 42.65it/s] 73%|#######3  | 365/500 [00:10<00:03, 39.86it/s] 74%|#######4  | 370/500 [00:10<00:03, 39.58it/s] 75%|#######5  | 375/500 [00:10<00:03, 39.97it/s] 76%|#######6  | 380/500 [00:10<00:03, 39.92it/s] 77%|#######7  | 385/500 [00:10<00:02, 39.14it/s] 78%|#######7  | 389/500 [00:10<00:02, 38.78it/s] 79%|#######8  | 394/500 [00:10<00:02, 40.05it/s] 80%|#######9  | 399/500 [00:11<00:02, 41.05it/s] 81%|########  | 404/500 [00:11<00:02, 40.85it/s] 82%|########1 | 409/500 [00:11<00:02, 39.32it/s] 83%|########2 | 413/500 [00:11<00:02, 38.48it/s] 84%|########3 | 418/500 [00:11<00:02, 40.00it/s] 85%|########4 | 423/500 [00:11<00:01, 39.08it/s] 86%|########5 | 428/500 [00:11<00:01, 40.76it/s] 87%|########6 | 433/500 [00:11<00:01, 41.58it/s] 88%|########7 | 439/500 [00:12<00:01, 44.31it/s] 89%|########8 | 444/500 [00:12<00:01, 40.93it/s] 90%|########9 | 449/500 [00:12<00:01, 41.86it/s] 91%|######### | 454/500 [00:12<00:01, 40.29it/s] 92%|#########1| 459/500 [00:12<00:01, 37.25it/s] 93%|#########2| 463/500 [00:12<00:00, 37.44it/s] 93%|#########3| 467/500 [00:12<00:00, 37.29it/s] 94%|#########4| 472/500 [00:12<00:00, 38.48it/s] 95%|#########5| 476/500 [00:12<00:00, 38.33it/s] 96%|#########6| 481/500 [00:13<00:00, 40.52it/s] 97%|#########7| 486/500 [00:13<00:00, 42.07it/s] 98%|#########8| 492/500 [00:13<00:00, 44.94it/s] 99%|#########9| 497/500 [00:13<00:00, 45.80it/s]100%|##########| 500/500 [00:13<00:00, 36.99it/s]
+Train Epoch 1
+{
+    "Log_Likelihood": 2.818373822782189,
+    "Loss": -2.818373822782189,
+    "Optimizer/policy0_lr": 0.00010000000000000003,
+    "Policy_Grad_Norms": 1753761.9702275307,
+    "Time_Data_Loading": 0.04951148827870687,
+    "Time_Epoch": 0.22886303265889485,
+    "Time_Log_Info": 0.03675548235575358,
+    "Time_Process_Batch": 0.006612670421600342,
+    "Time_Train_Batch": 0.13180718024571736
+}
+
+Epoch 1 Memory Usage: 3250 MB
+
+  0%|          | 0/500 [00:00<?, ?it/s]  0%|          | 1/500 [00:00<01:00,  8.24it/s]  1%|1         | 5/500 [00:00<00:20, 23.69it/s]  2%|2         | 10/500 [00:00<00:15, 31.77it/s]  3%|2         | 14/500 [00:00<00:15, 32.22it/s]  4%|3         | 19/500 [00:00<00:13, 35.25it/s]  5%|4         | 23/500 [00:00<00:13, 36.12it/s]  5%|5         | 27/500 [00:00<00:12, 36.73it/s]  6%|6         | 31/500 [00:00<00:13, 35.65it/s]  7%|7         | 35/500 [00:01<00:13, 35.15it/s]  8%|7         | 39/500 [00:01<00:13, 34.56it/s]  9%|8         | 43/500 [00:01<00:13, 34.95it/s]  9%|9         | 47/500 [00:01<00:12, 35.41it/s] 10%|#         | 51/500 [00:01<00:12, 35.38it/s] 11%|#1        | 56/500 [00:01<00:11, 37.16it/s] 12%|#2        | 60/500 [00:01<00:11, 37.84it/s] 13%|#3        | 65/500 [00:01<00:11, 36.50it/s] 14%|#3        | 69/500 [00:01<00:11, 36.46it/s] 15%|#4        | 74/500 [00:02<00:11, 37.83it/s] 16%|#5        | 78/500 [00:02<00:11, 37.56it/s] 16%|#6        | 82/500 [00:02<00:11, 37.21it/s] 17%|#7        | 87/500 [00:02<00:10, 38.70it/s] 18%|#8        | 91/500 [00:02<00:10, 37.66it/s] 19%|#9        | 96/500 [00:02<00:10, 40.07it/s] 20%|##        | 101/500 [00:02<00:09, 39.97it/s] 21%|##1       | 106/500 [00:02<00:10, 36.21it/s]
+run failed with error:
+[Errno 32] Broken pipe
+
+Traceback (most recent call last):
+  File "robomimic/scripts/train.py", line 351, in main
+    train(config, device=device)
+  File "robomimic/scripts/train.py", line 175, in train
+    step_log = TrainUtils.run_epoch(model=model, data_loader=train_loader, epoch=epoch, num_steps=train_num_steps)
+  File "/media/tirth/Expansion/docker_data_mount/projects/enpm690/robomimic/robomimic/utils/train_utils.py", line 521, in run_epoch
+    for _ in LogUtils.custom_tqdm(range(num_steps)):
+  File "/media/tirth/Expansion/docker_data_mount/conda_envs/robomimic_venv/lib/python3.8/site-packages/tqdm/std.py", line 1191, in __iter__
+    self.update(n - last_print_n)
+  File "/media/tirth/Expansion/docker_data_mount/conda_envs/robomimic_venv/lib/python3.8/site-packages/tqdm/std.py", line 1242, in update
+    self.refresh(lock_args=self.lock_args)
+  File "/media/tirth/Expansion/docker_data_mount/conda_envs/robomimic_venv/lib/python3.8/site-packages/tqdm/std.py", line 1347, in refresh
+    self.display()
+  File "/media/tirth/Expansion/docker_data_mount/conda_envs/robomimic_venv/lib/python3.8/site-packages/tqdm/std.py", line 1495, in display
+    self.sp(self.__str__() if msg is None else msg)
+  File "/media/tirth/Expansion/docker_data_mount/conda_envs/robomimic_venv/lib/python3.8/site-packages/tqdm/std.py", line 459, in print_status
+    fp_write('\r' + s + (' ' * max(last_len[0] - len_s, 0)))
+  File "/media/tirth/Expansion/docker_data_mount/conda_envs/robomimic_venv/lib/python3.8/site-packages/tqdm/std.py", line 452, in fp_write
+    fp.write(str(s))
+  File "/media/tirth/Expansion/docker_data_mount/conda_envs/robomimic_venv/lib/python3.8/site-packages/tqdm/utils.py", line 196, in inner
+    return func(*args, **kwargs)
+  File "/media/tirth/Expansion/docker_data_mount/projects/enpm690/robomimic/robomimic/utils/log_utils.py", line 23, in write
+    self.terminal.write(message)
+BrokenPipeError: [Errno 32] Broken pipe
+

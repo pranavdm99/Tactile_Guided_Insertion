@@ -119,10 +119,10 @@ venv.bak/
 .mypy_cache/
 *.mp4
 *.pth
+*.pth.*
 
-# HPC run outputs and local checkpoints
-runs/
-trained_models/
+# Claude Code memory (local only)
+.claude/
 
 # MuJoCo logs
 MUJOCO_LOG.TXT

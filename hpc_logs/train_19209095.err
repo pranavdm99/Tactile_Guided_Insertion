@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "robomimic/scripts/train.py", line 35, in <module>
+    import robomimic.utils.train_utils as TrainUtils
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/utils/train_utils.py", line 25, in <module>
+    from robomimic.algo import RolloutPolicy
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/algo/__init__.py", line 8, in <module>
+    from robomimic.algo.hbc import HBC
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/algo/hbc.py", line 17, in <module>
+    from robomimic.config.config import Config
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/config/__init__.py", line 2, in <module>
+    from robomimic.config.base_config import config_factory, get_all_registered_configs
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/config/base_config.py", line 7, in <module>
+    import six # preserve metaclass compatibility between python 2 and 3
+ModuleNotFoundError: No module named 'six'

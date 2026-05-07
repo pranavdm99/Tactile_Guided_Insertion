@@ -1,0 +1,56 @@
+Found 25 checkpoints to sweep
+  Early spot-checks: [1000, 1250, 1500, 1750]
+  Post-LR-decay (2000-3000): 21 checkpoints
+
+Epoch 1000 | Success 0/5 | Return 54.1
+Epoch 1250 | Success 0/5 | Return 50.3
+Epoch 1500 | Success 1/5 | Return 42.6
+Epoch 1750 | Success 0/5 | Return 44.0
+Epoch 2000 | Success 0/5 | Return 49.5
+Epoch 2050 | Success 0/5 | Return 42.7
+Epoch 2100 | Success 0/5 | Return 40.5
+Epoch 2150 | Success 0/5 | Return 39.7
+Epoch 2200 | Success 0/5 | Return 44.6
+Epoch 2250 | Success 1/5 | Return 42.6
+Epoch 2300 | Success 0/5 | Return 39.0
+Epoch 2350 | Success 1/5 | Return 43.1
+Epoch 2400 | Success 0/5 | Return 46.5
+Epoch 2450 | Success 0/5 | Return 47.9
+Epoch 2500 | Success 0/5 | Return 46.4
+Epoch 2550 | Success 0/5 | Return 43.9
+Epoch 2600 | Success 0/5 | Return 45.9
+Epoch 2650 | Success 0/5 | Return 48.2
+Epoch 2700 | Success 0/5 | Return 45.2
+Epoch 2750 | Success 0/5 | Return 45.3
+Epoch 2800 | Success 0/5 | Return 46.9
+Epoch 2850 | Success 1/5 | Return 37.1
+Epoch 2900 | Success 1/5 | Return 43.0
+Epoch 2950 | Success 0/5 | Return 58.3
+Epoch 3000 | Success 0/5 | Return 45.4
+
+Sweep results saved to runs/sweep_results.json
+
+==================================================
+Top 5 from coarse sweep:
+  Epoch 2350 — 1/5 success, return 43.1
+  Epoch 2900 — 1/5 success, return 43.0
+  Epoch 1500 — 1/5 success, return 42.6
+  Epoch 2250 — 1/5 success, return 42.6
+  Epoch 2850 — 1/5 success, return 37.1
+==================================================
+
+Confirmation pass: 20 rollouts each on top-3 candidates...
+Epoch 2350 | Success 1/20 | Return 41.9
+Epoch 2900 | Success 0/20 | Return 41.8
+Epoch 1500 | Success 0/20 | Return 45.0
+
+==================================================
+BEST CHECKPOINT: epoch 2350
+  Coarse:  1/5
+  Confirm: 1/20
+  Return:  41.9
+==================================================
+
+Running final 10-rollout eval on epoch 2350 with video...
+Final stats: {'Return': 35.307272386305364, 'Success': 0.1, 'Num_Success': 1}
+Video saved: runs/best_epoch2350_rollout.mp4

@@ -2,7 +2,7 @@
     "algo_name": "bc",
     "experiment": {
         "name": "round_nut_bc_rnn_fots",
-        "validate": false,
+        "validate": true,
         "logging": {
             "terminal_output_to_txt": true,
             "log_tb": true,
@@ -11,6 +11,7 @@
         "save": {
             "enabled": true,
             "every_n_epochs": 50,
+            "on_best_validation": true,
             "on_best_rollout_success_rate": false
         },
         "epoch_every_n_steps": 500,
@@ -36,7 +37,7 @@
         "goal_mode": null,
         "cuda": true,
         "batch_size": 100,
-        "num_epochs": 2000,
+        "num_epochs": 3000,
         "seed": 1
     },
     "algo": {
@@ -45,11 +46,12 @@
                 "learning_rate": {
                     "initial": 0.0001,
                     "decay_factor": 0.1,
-                    "epoch_schedule": []
+                    "epoch_schedule": [2000]
                 },
                 "regularization": {
                     "L2": 0.0
-                }
+                },
+                "max_grad_norm": 1.0
             }
         },
         "loss": {

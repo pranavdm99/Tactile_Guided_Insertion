@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "robomimic/scripts/train.py", line 405, in <module>
+    main(args)
+  File "robomimic/scripts/train.py", line 318, in main
+    config.update(ext_cfg)
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/config/config.py", line 288, in update
+    self[k].update(v)
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/config/config.py", line 288, in update
+    self[k].update(v)
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/config/config.py", line 288, in update
+    self[k].update(v)
+  File "/scratch/zt1/project/enpm690/user/tsadaria/robomimic/robomimic/config/config.py", line 284, in update
+    raise RuntimeError("Cannot update - this config has been key-locked and key '{}' does not exist".format(k))
+RuntimeError: Cannot update - this config has been key-locked and key 'max_grad_norm' does not exist

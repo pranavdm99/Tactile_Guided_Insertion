@@ -1,0 +1,10 @@
+========================================
+Job ID   : 19214821
+Node     : gpu-b11-3
+GPU      : NVIDIA A100-SXM4-40GB
+Submit   : /scratch/zt1/project/enpm690/user/tsadaria/robomimic
+Dataset  : /scratch/zt1/project/enpm690/user/tsadaria/robomimic/datasets/merged_lowdim.hdf5
+Output   : /scratch/zt1/project/enpm690/user/tsadaria/robomimic/trained_models/round_nut
+Start    : Tue May  5 17:44:28 EDT 2026
+========================================
+Config written to /tmp/bc_rnn_19214821.json
