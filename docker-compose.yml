@@ -1,0 +1,25 @@
+services:
+  tactile_inference:
+    build: .
+    image: enpm690_group5:latest
+    container_name: tactile_inference
+    mem_limit: 8g
+    memswap_limit: 8g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, utility, compute]
+    environment:
+      - MUJOCO_GL=egl
+      - MUJOCO_EGL_DEVICE_ID=0
+      - TACTILE_ROOT=/app
+      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts
+    volumes:
+      - ./output:/app/output
+    network_mode: "host"
+    ipc: "host"
+    tty: true
+    stdin_open: true

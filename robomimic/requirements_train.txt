@@ -1,0 +1,11 @@
+# Minimal dependencies for robomimic BC-RNN training (no sim/rollouts)
+torch>=1.11.0
+torchvision
+h5py
+numpy
+tqdm
+imageio
+imageio-ffmpeg
+psutil
+tensorboard
+wandb

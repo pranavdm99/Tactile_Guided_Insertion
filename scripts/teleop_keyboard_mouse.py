@@ -1,0 +1,342 @@
+#!/usr/bin/env python3
+"""
+FOTS-Enabled Teleoperation script for Robosuite Panda with tactile sensing.
+Allows manual control using Mouse (XY Translation, Scroll Z) and Keyboard (Arrows/PgUpDn Rotation).
+Displays real-time tactile imprints from FOTS sensors.
+"""
+
+import argparse
+import os
+import numpy as np
+import cv2
+import robosuite as suite
+from pynput import keyboard, mouse
+from robosuite import load_composite_controller_config
+from env_setup.make_env import make_fots_env
+from env_setup.utils.data_recorder import DataRecorder
+
+class HybridDevice:
+    """
+    Combines Keyboard and Mouse input for 6-DOF robot control.
+    """
+    def __init__(self, pos_sensitivity=0.2, rot_sensitivity=0.1, scroll_sensitivity=0.5):
+        self.pos_sensitivity = pos_sensitivity
+        self.rot_sensitivity = rot_sensitivity
+        self.scroll_sensitivity = scroll_sensitivity
+
+        # State
+        self.dpos = np.zeros(3)
+        self.raw_drotation = np.zeros(3)
+        self.grasp = False
+        self.reset_state = False
+        self.quit = False
+        self.recording = False
+        self.recording_toggled = False
+
+        # Mouse tracking
+        self.last_mouse_pos = None
+
+        # Listeners
+        self.kb_listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        self.m_listener = mouse.Listener(on_move=self.on_move, on_scroll=self.on_scroll)
+
+    def start(self):
+        self.kb_listener.start()
+        self.m_listener.start()
+
+    def stop(self):
+        self.kb_listener.stop()
+        self.m_listener.stop()
+
+    def on_move(self, x, y):
+        if self.last_mouse_pos is None:
+            self.last_mouse_pos = (x, y)
+            return
+        
+        dx = x - self.last_mouse_pos[0]
+        dy = y - self.last_mouse_pos[1]
+        self.last_mouse_pos = (x, y)
+
+        self.dpos[0] += dy * self.pos_sensitivity
+        self.dpos[1] += dx * self.pos_sensitivity
+
+    def on_scroll(self, x, y, dx, dy):
+        self.dpos[2] += dy * self.scroll_sensitivity
+
+    def on_press(self, key):
+        try:
+            if key == keyboard.Key.up:
+                self.raw_drotation[0] += self.rot_sensitivity
+            elif key == keyboard.Key.down:
+                self.raw_drotation[0] -= self.rot_sensitivity
+            elif key == keyboard.Key.left:
+                self.raw_drotation[2] += self.rot_sensitivity
+            elif key == keyboard.Key.right:
+                self.raw_drotation[2] -= self.rot_sensitivity
+            elif key == keyboard.Key.page_up:
+                self.raw_drotation[1] -= self.rot_sensitivity
+            elif key == keyboard.Key.page_down:
+                self.raw_drotation[1] += self.rot_sensitivity
+            elif key == keyboard.Key.backspace:
+                self.reset_state = True
+            elif key == keyboard.Key.esc:
+                self.quit = True
+            elif hasattr(key, 'char') and key.char == 'r':
+                self.recording = not self.recording
+                self.recording_toggled = True
+        except Exception:
+            pass
+
+    def on_release(self, key):
+        if key == keyboard.Key.enter:
+            self.grasp = not self.grasp
+
+    def get_controller_state(self):
+        state = {
+            "dpos": self.dpos.copy(),
+            "raw_drotation": self.raw_drotation.copy(),
+            "grasp": self.grasp,
+            "reset": self.reset_state,
+            "quit": self.quit
+        }
+        self.dpos.fill(0)
+        self.raw_drotation.fill(0)
+        self.reset_state = False
+        return state
+
+def main():
+    parser = argparse.ArgumentParser(description="Panda FOTS Teleop (Mouse + Keyboard + Tactile)")
+    parser.add_argument("--env", type=str, default="NutAssemblySingle", help="Environment name")
+    parser.add_argument("--horizon", type=int, default=1000, help="Max number of steps")
+    parser.add_argument("--camera", type=str, default="agentview", help="Camera name")
+    parser.add_argument("--fast", action="store_true", help="Use fast depth visualization instead of FOTS MLP")
+    parser.add_argument("--no-tactile-display", action="store_true", help="Disable tactile image display window")
+    parser.add_argument("--nut", type=str, default=None, choices=["round", "square"], help="Nut type to use")
+    parser.add_argument("--dataset-dir", type=str, default="datasets", help="Directory to save demonstrations")
+    args = parser.parse_args()
+
+    # 1. Initialize environment with FOTS Panda Gripper
+    print("[INFO] Initializing FOTS Environment with Tactile Sensing...")
+    
+    env = make_fots_env(
+        env_name=args.env,
+        fidelity_mode=not args.fast,
+        has_renderer=True,
+        has_offscreen_renderer=True,
+        use_camera_obs=True,
+        horizon=args.horizon,
+        render_camera=args.camera,
+        nut_type=args.nut,
+    )
+
+    # 2. Initialize Hybrid Device
+    device = HybridDevice()
+    device.start()
+
+    # 3. Initialize Data Recorder
+    recorder = DataRecorder(output_dir=args.dataset_dir)
+    base_env = env.env if hasattr(env, "env") else env
+    recorder.set_robomimic_env_context(
+        {
+            "env_name": args.env,
+            "env_version": suite.__version__,
+            "env_kwargs": {
+                "env_name": args.env,
+                "robots": "Panda",
+                "gripper_types": "FOTSPandaGripper",
+                "has_renderer": bool(getattr(env, "has_renderer", False)),
+                "has_offscreen_renderer": bool(getattr(env, "has_offscreen_renderer", True)),
+                "use_camera_obs": True,
+                "control_freq": getattr(base_env, "control_freq", 20),
+                "horizon": args.horizon,
+                "nut_type": args.nut,
+                "reward_shaping": True,
+            },
+        }
+    )
+    
+    # 4. Setup tactile display window if enabled
+    tactile_win = None
+    if not args.no_tactile_display:
+        tactile_win = "FOTS Sensor Dashboard"
+        cv2.namedWindow(tactile_win, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(tactile_win, 1280, 960)  # 2x2 grid: [agentview | wrist] / [tactile_l | tactile_r]
+    
+    print("[INFO] Teleoperation Started (FOTS-Enabled Robosuite).")
+    print("Controls: Mouse=Pos, Arrows/PgUpDn=Rot, Enter=Grasp, Backspace=Reset, ESC=Quit")
+    if not args.no_tactile_display:
+        print(f"[INFO] Tactile Mode: {'Fast Depth' if args.fast else 'FOTS MLP Rendering'}")
+
+    obs = env.reset()
+    env.render()
+    
+    # Baselines for tactile visualization HUD (only used in Fast Mode)
+    display_baseline_l = None
+    display_baseline_r = None
+    
+    # Enable geometry group 4 (gripper visualization) AFTER first render
+    # This ensures the viewer is initialized before we modify vopt
+    # (base_env was set above for recorder metadata)
+
+    # For on-screen mjviewer renderer (uses mujoco.viewer with .opt attribute)
+    if hasattr(base_env, 'viewer') and base_env.viewer is not None:
+        # The MjviewerRenderer creates the actual viewer lazily in update()
+        # Access via base_env.viewer.viewer (the inner mujoco viewer)
+        if hasattr(base_env.viewer, 'viewer') and base_env.viewer.viewer is not None:
+            # Use .opt (not .vopt) for the mujoco passive viewer
+            if hasattr(base_env.viewer.viewer, 'opt'):
+                base_env.viewer.viewer.opt.geomgroup[4] = 1
+                print("[INFO] Enabled geometry group 4 (gripper visualization) in mjviewer")
+    
+    # For offscreen renderer (used for camera observations and persists across resets)
+    if hasattr(base_env, 'sim') and hasattr(base_env.sim, '_render_context_offscreen'):
+        if base_env.sim._render_context_offscreen is not None:
+            ctx = base_env.sim._render_context_offscreen
+            if hasattr(ctx, 'vopt'):
+                ctx.vopt.geomgroup[4] = 1
+                print("[INFO] Enabled geometry group 4 in offscreen renderer (persists across resets)")
+
+    try:
+        while not device.quit:
+            state = device.get_controller_state()
+            
+            if state["reset"]:
+                print("[INFO] Resetting...")
+                obs = env.reset()
+                env.render()
+                # Re-enable geometry group 4 after reset
+                if hasattr(base_env, 'viewer') and base_env.viewer is not None:
+                    if hasattr(base_env.viewer, 'viewer') and base_env.viewer.viewer is not None:
+                        if hasattr(base_env.viewer.viewer, 'opt'):
+                            base_env.viewer.viewer.opt.geomgroup[4] = 1
+                
+                # Reset display baselines
+                display_baseline_l = None
+                display_baseline_r = None
+                
+                if device.recording:
+                    recorder.save_episode(discard=True)
+                continue
+
+
+            # Observation before this control step (matches BC convention: predict a_t from s_t).
+            obs_before = obs
+
+            # Standard 7-DOF action: [dx, dy, dz, ax, ay, az, grasp]
+            # FOTS gripper mirrors both fingers from single control (1-DOF parallel jaw)
+            # +1 = closed, -1 = open
+            action = np.zeros(env.action_dim)
+            action[:3] = state["dpos"]
+            action[3:6] = state["raw_drotation"]
+            action[6] = 1.0 if state["grasp"] else -1.0
+
+            obs, reward, done, info = env.step(action)
+            env.render()
+            
+            # Re-enable geometry group 4 after each render (in case viewer was recreated)
+            if hasattr(base_env, 'viewer') and base_env.viewer is not None:
+                if hasattr(base_env.viewer, 'viewer') and base_env.viewer.viewer is not None:
+                    if hasattr(base_env.viewer.viewer, 'opt'):
+                        base_env.viewer.viewer.opt.geomgroup[4] = 1
+            
+            # Display 2x2 Sensor Dashboard
+            if not args.no_tactile_display and "tactile_left" in obs and "tactile_right" in obs:
+                # --- Panel dimensions (each cell = 640x480) ---
+                CELL_W, CELL_H = 640, 480
+
+                # ── Top-left: Agentview ──
+                if "agentview_image" in obs:
+                    av = obs["agentview_image"]
+                    av = np.flip(av, axis=0)  # MuJoCo vertical flip
+                    av_bgr = cv2.cvtColor(av, cv2.COLOR_RGB2BGR)
+                    top_left = cv2.resize(av_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_LINEAR)
+                else:
+                    top_left = np.zeros((CELL_H, CELL_W, 3), dtype=np.uint8)
+                cv2.putText(top_left, "Agentview", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Top-right: Wrist Camera ──
+                if "robot0_eye_in_hand_image" in obs:
+                    wc = obs["robot0_eye_in_hand_image"]
+                    wc = np.flip(wc, axis=0)  # MuJoCo vertical flip
+                    wc_bgr = cv2.cvtColor(wc, cv2.COLOR_RGB2BGR)
+                    top_right = cv2.resize(wc_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_LINEAR)
+                else:
+                    top_right = np.zeros((CELL_H, CELL_W, 3), dtype=np.uint8)
+                cv2.putText(top_right, "Wrist Camera", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Tactile: raw depth → heatmap, or RGB direct ──
+                tl, tr = obs["tactile_left"], obs["tactile_right"]
+                if tl.dtype == np.float32:
+                    if display_baseline_l is None:
+                        display_baseline_l = tl.copy()
+                        display_baseline_r = tr.copy()
+                    def to_heatmap(diff):
+                        z_u8 = (np.clip(diff / 0.01, 0.0, 1.0) * 255).astype(np.uint8)
+                        return cv2.applyColorMap(z_u8, cv2.COLORMAP_JET)
+                    bot_left_bgr  = to_heatmap(display_baseline_l - tl)
+                    bot_right_bgr = to_heatmap(display_baseline_r - tr)
+                else:
+                    bot_left_bgr  = cv2.cvtColor(tl, cv2.COLOR_RGB2BGR)
+                    bot_right_bgr = cv2.cvtColor(tr, cv2.COLOR_RGB2BGR)
+
+                # ── Bottom-left: Tactile Left ──
+                bot_left = cv2.resize(bot_left_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_CUBIC)
+                cv2.putText(bot_left, "Tactile Left", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Bottom-right: Tactile Right ──
+                bot_right = cv2.resize(bot_right_bgr, (CELL_W, CELL_H), interpolation=cv2.INTER_CUBIC)
+                cv2.putText(bot_right, "Tactile Right", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+
+                # ── Assemble 2x2 grid ──
+                top_row = np.hstack([top_left, top_right])
+                bot_row = np.hstack([bot_left, bot_right])
+                combined = np.vstack([top_row, bot_row])
+
+                # ── Recording indicator (top-left corner of the whole grid) ──
+                if device.recording:
+                    cv2.circle(combined, (30, 30), 14, (0, 0, 255), -1)
+                    cv2.putText(combined, "REC", (52, 42),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+
+                cv2.imshow(tactile_win, combined)
+                cv2.waitKey(1)
+
+            # 4. Recording Logic
+            if device.recording:
+                if device.recording_toggled:
+                    print("[INFO] Recording Started...")
+                    recorder.start_episode()
+                    device.recording_toggled = False
+                
+                # Record the transition
+                recorder.record_step(obs_before, action, reward, done)
+            elif device.recording_toggled:
+                print("[INFO] Recording Stopped.")
+                recorder.save_episode()
+                device.recording_toggled = False
+
+            if done:
+                print("[INFO] Episode done. Resetting...")
+                if device.recording:
+                    recorder.save_episode()
+                    device.recording = False
+                
+                obs = env.reset()
+                env.render()
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("\n[INFO] Stopping Teleop...")
+        device.stop()
+        if tactile_win:
+            cv2.destroyAllWindows()
+        env.close()
+
+if __name__ == "__main__":
+    main()
+
