@@ -22,7 +22,7 @@ The robot must grasp a round nut and insert it onto a peg using tactile feedback
 
 ```
 group5/
-├── Dockerfile                   # Lean inference container (CUDA 12.1 runtime)
+├── Dockerfile                   # CPU-only inference container (ubuntu:22.04)
 ├── docker-compose.yml
 ├── requirements.txt
 ├── entrypoint.sh
@@ -45,8 +45,8 @@ group5/
 ## Prerequisites
 
 - Docker Engine
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-- NVIDIA GPU (compute capability ≥ 6.0)
+
+> No GPU required. The inference container uses CPU-only PyTorch and software rendering (osmesa/GLFW).
 
 ---
 
@@ -58,32 +58,46 @@ group5/
 docker compose build
 ```
 
-> First build takes ~10–15 minutes (downloads CUDA base + installs PyTorch, MuJoCo, robosuite).
+> First build takes ~5–8 minutes (downloads ubuntu:22.04, CPU PyTorch, MuJoCo, robosuite).
 
-### 2. Run the pre-trained model (10 rollouts)
+### 2. Run with live viewer (recommended)
+
+Opens a MuJoCo window showing the robot attempting nut insertion in real time. Requires an X11 display.
+
+```bash
+# One-time: allow Docker to connect to your display
+xhost +local:docker
+
+# Run 5 rollouts with the live viewer
+docker compose run --rm tactile_inference_render
+```
+
+The viewer window opens automatically and shows each rollout. Per-rollout stats are printed to the terminal.
+
+### 3. Run headless and save a video (no display needed)
 
 ```bash
 docker compose run --rm tactile_inference
 ```
 
-This runs 10 rollouts with `checkpoints/model_epoch_2800.pth` and saves a video to `output/rollout.mp4`.
+Runs 10 rollouts and saves `output/rollout.mp4`. No display or GPU required.
 
-### 3. Custom run options
+### 4. Custom run options
 
 ```bash
-# Change number of rollouts or horizon
+# Custom rollout count / horizon / output path
 docker compose run --rm tactile_inference \
   python3 /app/robomimic/robomimic/scripts/rollout_fots.py \
-  --agent   /app/checkpoints/model_epoch_2800.pth \
+  --agent      /app/checkpoints/model_epoch_2800.pth \
   --n_rollouts 5 \
   --horizon    400 \
   --video_path /app/output/my_rollout.mp4
 
-# Drop into an interactive shell
+# Interactive shell
 docker compose run --rm --entrypoint bash tactile_inference
 ```
 
-The rollout script prints per-attempt stats and a final success-rate summary:
+The rollout script prints per-attempt stats and a final summary:
 ```
 --- Rollout 1/10 ---
 {"Return": 46.9, "Horizon": 400, "Success": 0.0}

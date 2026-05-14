@@ -25,7 +25,6 @@ setup(
         "tensorboardX",
         "imageio",
         "imageio-ffmpeg",
-        "egl_probe>=1.0.1",
         "torch",
         "torchvision",
     ],

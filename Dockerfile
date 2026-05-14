@@ -1,15 +1,7 @@
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=all
-ENV MUJOCO_GL=egl
 ENV QT_X11_NO_MITSHM=1
-
-# TACTILE_ROOT tells rollout_fots.py where env_setup/ and fots_sim/ live
-ENV TACTILE_ROOT=/app
-
-ENV PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts"
 
 RUN chmod 1777 /tmp && \
     apt-get update && apt-get install -y \
@@ -20,9 +12,12 @@ RUN chmod 1777 /tmp && \
     libosmesa6-dev \
     libglew-dev \
     libglib2.0-0 \
+    libglfw3 \
     patchelf \
     xvfb \
     cmake \
+    libegl1 \
+    libegl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -s /usr/bin/python3 /usr/bin/python && \
@@ -30,18 +25,29 @@ RUN ln -s /usr/bin/python3 /usr/bin/python && \
 
 WORKDIR /app
 
+# Install CPU-only PyTorch first so robomimic's setup.py sees them already satisfied
+# (CPU wheels are ~200 MB vs ~2.5 GB for CUDA wheels)
+RUN pip install --no-cache-dir \
+    torch torchvision \
+    --index-url https://download.pytorch.org/whl/cpu
+
 # Install custom robosuite fork (robomimic depends on it)
 COPY robosuite/ /app/robosuite/
-RUN pip install --no-cache-dir -e /app/robosuite/
+RUN pip install --no-cache-dir /app/robosuite/
 
 # Install custom robomimic fork
 COPY robomimic/ /app/robomimic/
-RUN pip install --no-cache-dir -e /app/robomimic/
+RUN pip install --no-cache-dir /app/robomimic/
 
 # Install remaining inference dependencies
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
     pip install --no-cache-dir "numpy<2.0"
+
+# Runtime env vars placed after pip layers to preserve build cache
+ENV MUJOCO_GL=osmesa
+ENV TACTILE_ROOT=/app
+ENV PYTHONPATH="/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts"
 
 # Copy project code
 COPY env_setup/ /app/env_setup/

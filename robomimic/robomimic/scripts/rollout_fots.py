@@ -98,7 +98,7 @@ def check_success(env):
     return False
 
 
-def run_rollout(policy, env, horizon, video_writer=None, video_skip=5):
+def run_rollout(policy, env, horizon, video_writer=None, video_skip=5, render=False):
     policy.start_episode()
     raw_obs = env.reset()
 
@@ -118,6 +118,9 @@ def run_rollout(policy, env, horizon, video_writer=None, video_skip=5):
         total_reward += reward
         success = check_success(env)
         obs = process_obs(raw_obs, baseline_l, baseline_r)
+
+        if render:
+            env.render()
 
         if video_writer is not None and video_count % video_skip == 0:
             frame = raw_obs.get("agentview_image")
@@ -139,6 +142,7 @@ def main():
     parser.add_argument("--video_path", type=str, default=None)
     parser.add_argument("--video_skip", type=int, default=5)
     parser.add_argument("--seed",       type=int, default=0)
+    parser.add_argument("--render",     action="store_true", help="open live viewer window (requires X11)")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -160,6 +164,7 @@ def main():
             fidelity_mode=True,
             render_height=96,
             render_width=128,
+            has_renderer=args.render,
             has_offscreen_renderer=True,
             use_camera_obs=True,
         )
@@ -174,7 +179,7 @@ def main():
     all_stats = []
     for i in range(args.n_rollouts):
         print(f"\n--- Rollout {i + 1}/{args.n_rollouts} ---")
-        stats = run_rollout(policy, env, args.horizon, video_writer, args.video_skip)
+        stats = run_rollout(policy, env, args.horizon, video_writer, args.video_skip, render=args.render)
         all_stats.append(stats)
         print(json.dumps(stats, indent=2))
 

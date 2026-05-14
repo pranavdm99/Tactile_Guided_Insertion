@@ -5,16 +5,8 @@ services:
     container_name: tactile_inference
     mem_limit: 8g
     memswap_limit: 8g
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu, utility, compute]
     environment:
-      - MUJOCO_GL=egl
-      - MUJOCO_EGL_DEVICE_ID=0
+      - MUJOCO_GL=osmesa
       - TACTILE_ROOT=/app
       - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts
     volumes:
@@ -23,3 +15,28 @@ services:
     ipc: "host"
     tty: true
     stdin_open: true
+
+  tactile_inference_render:
+    image: enpm690_group5:latest
+    container_name: tactile_inference_render
+    environment:
+      - DISPLAY=${DISPLAY}
+      - MUJOCO_GL=glfw
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - GALLIUM_DRIVER=llvmpipe
+      - TACTILE_ROOT=/app
+      - PYTHONPATH=/app:/app/env_setup:/app/fots_sim:/app/fots_sim/utils:/app/scripts
+    volumes:
+      - ./output:/app/output
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./robomimic/robomimic/scripts/rollout_fots.py:/app/robomimic/robomimic/scripts/rollout_fots.py:ro
+    network_mode: "host"
+    ipc: "host"
+    tty: true
+    stdin_open: true
+    command: >
+      python3 /app/robomimic/robomimic/scripts/rollout_fots.py
+      --agent /app/checkpoints/model_epoch_2800.pth
+      --n_rollouts 5
+      --horizon 400
+      --render
